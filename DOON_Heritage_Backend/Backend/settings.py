@@ -131,3 +131,4 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
 }
+ALLOWED_HOSTS = ['brain-o-math-student-management.onrender.com', 'localhost', '127.0.0.1', 'http://localhost:5173']
