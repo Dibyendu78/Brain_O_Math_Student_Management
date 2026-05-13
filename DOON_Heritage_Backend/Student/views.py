@@ -50,28 +50,41 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         data = request.data
-        user = User.objects.create(
+        user = User(
             username=data.get('username'),
             email=data.get('email', ''),
             first_name=data.get('first_name', ''),
             last_name=data.get('last_name', '')
         )
-        if 'password' in data:
+        if 'password' in data and data['password']:
+            user._raw_password = data['password'] # Temporarily attach for signal
+            user._role_for_email = data.get('role', 'teacher') # Temporarily attach for signal
             user.set_password(data['password'])
-            user.save()
+        else:
+            user.set_unusable_password()
+            
+        user.save() # Ensure user is saved first before related profiles
             
         role = data.get('role')
         if role == 'class_teacher' or role == 'both':
             ctp = ClassTeacherProfile.objects.create(user=user)
-            if 'classes' in data:
-                ctp.classes.set(data['classes'])
+            if 'class_teacher_classes' in data:
+                ctp.class_ids = data['class_teacher_classes']
+            elif 'classes' in data and data['classes']:
+                ctp.class_ids = data['classes']
+            ctp.save()
                 
         if role == 'subject_teacher' or role == 'both':
             stp = SubjectTeacherProfile.objects.create(user=user)
-            if 'subjects' in data:
-                stp.subjects.set(data['subjects'])
-            if 'classes' in data:
-                stp.classes.set(data['classes'])
+            from Subject_Teacher.models import SubjectTeacherClassAssignment
+            assignments = data.get('subject_assignments', {})
+            for class_id, subject_ids in assignments.items():
+                for subject_id in subject_ids:
+                    SubjectTeacherClassAssignment.objects.create(
+                        teacher=stp,
+                        classroom_id=class_id,
+                        subject_id=subject_id
+                    )
             
         serializer = self.get_serializer(user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -94,17 +107,29 @@ class UserViewSet(viewsets.ModelViewSet):
         # Simple role toggle logic
         if role == 'class_teacher' or role == 'both':
             ctp, _ = ClassTeacherProfile.objects.get_or_create(user=user)
-            if 'classes' in data:
-                ctp.classes.set(data['classes'])
+            if 'class_teacher_classes' in data:
+                ctp.class_ids = data['class_teacher_classes']
+            elif 'classes' in data and data['classes']:
+                ctp.class_ids = data['classes']
+            ctp.save()
         else:
             ClassTeacherProfile.objects.filter(user=user).delete()
             
         if role == 'subject_teacher' or role == 'both':
             stp, _ = SubjectTeacherProfile.objects.get_or_create(user=user)
-            if 'subjects' in data:
-                stp.subjects.set(data['subjects'])
-            if 'classes' in data:
-                stp.classes.set(data['classes'])
+            from Subject_Teacher.models import SubjectTeacherClassAssignment
+            
+            # Clear old assignments
+            stp.assignments.all().delete()
+            
+            assignments = data.get('subject_assignments', {})
+            for class_id, subject_ids in assignments.items():
+                for subject_id in subject_ids:
+                    SubjectTeacherClassAssignment.objects.create(
+                        teacher=stp,
+                        classroom_id=class_id,
+                        subject_id=subject_id
+                    )
         else:
             SubjectTeacherProfile.objects.filter(user=user).delete()
 
@@ -122,7 +147,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSuperAdminOrReadOnly]
 
 class StudentViewSet(viewsets.ModelViewSet):
-    queryset = Student.objects.all()
+    queryset = Student.objects.select_related('classroom').all()
     serializer_class = StudentSerializer
     permission_classes = [IsSuperAdmin]
 
@@ -138,7 +163,6 @@ class StudentViewSet(viewsets.ModelViewSet):
         data_set = csv_file.read().decode('UTF-8')
         io_string = io.StringIO(data_set)
 
-        # Try to detect header row; if missing, assume order: class, roll_number, name, email
         has_header = False
         try:
             has_header = csv.Sniffer().has_header(data_set)
@@ -148,17 +172,82 @@ class StudentViewSet(viewsets.ModelViewSet):
         created_count = 0
         updated_count = 0
 
+        from datetime import datetime
+        def parse_date(date_str):
+            if not date_str: return None
+            # Extract date if it contains extra time part
+            date_str = date_str.strip().split(' ')[0]
+            for fmt in ('%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%Y/%m/%d'):
+                try:
+                    return datetime.strptime(date_str, fmt).date()
+                except ValueError:
+                    pass
+            return None
+
         if has_header:
             reader = csv.DictReader(io_string)
             for row in reader:
-                # Support different header names
-                name = (row.get('name') or row.get('Name') or row.get('student_name') or row.get('Student Name'))
+                name = (row.get('name') or row.get('Name') or row.get('student_name') or row.get('Student Name') or '').strip()
                 if not name:
                     continue
 
-                class_name = (row.get('class_name') or row.get('class') or row.get('Class') or row.get('Class Name') or 'Unknown')
-                roll_number = (row.get('roll_number') or row.get('roll') or row.get('Roll Number') or row.get('Roll'))
-                email = (row.get('email') or row.get('Email'))
+                class_name = (row.get('CLASS') or row.get('class_name') or row.get('class') or row.get('Class') or row.get('Class Name') or 'Unknown').strip()
+                roll_number = (row.get('Roll No') or row.get('Roll No ') or row.get('roll_number') or row.get('roll') or row.get('Roll Number') or row.get('Roll') or '').strip()
+                email = (row.get('Email') or row.get('email') or '').strip()
+                parent_name = (row.get('Parent Name(One)') or row.get('parent_name') or row.get('Parent Name') or '').strip()
+                parent_mobile = (row.get('Ph. No.') or row.get('Parent Mobile') or row.get('parent_mobile_number') or '').strip()
+                dob_str = (row.get('Date of Birth') or row.get('date_of_birth') or '').strip()
+                res_address = (row.get('Residential Address') or row.get('residential_address') or '').strip()
+                height = (row.get('Height(in cm)') or row.get('height_in_cm') or '').strip()
+
+                classroom, _ = ClassRoom.objects.get_or_create(name=class_name)
+
+                student = None
+                if roll_number:
+                    student = Student.objects.filter(classroom=classroom, roll_number=roll_number).first()
+                if not student:
+                    student = Student.objects.filter(classroom=classroom, name=name).first()
+
+                parsed_dob = parse_date(dob_str)
+
+                if student:
+                    student.name = name
+                    student.roll_number = roll_number or None
+                    student.email = email or None
+                    student.parent_name = parent_name or None
+                    student.parent_mobile_number = parent_mobile or None
+                    student.date_of_birth = parsed_dob
+                    student.residential_address = res_address or None
+                    student.height_in_cm = height or None
+                    student.save()
+                    updated_count += 1
+                else:
+                    Student.objects.create(
+                        name=name,
+                        email=email or None,
+                        roll_number=roll_number or None,
+                        parent_name=parent_name or None,
+                        parent_mobile_number=parent_mobile or None,
+                        date_of_birth=parsed_dob,
+                        residential_address=res_address or None,
+                        height_in_cm=height or None,
+                        classroom=classroom
+                    )
+                    created_count += 1
+        else:
+            # Fallback for no header row
+            reader = csv.reader(io_string)
+            for row in reader:
+                if not row or all(not col.strip() for col in row):
+                    continue
+
+                class_name = row[0].strip() if len(row) > 0 else 'Unknown'
+                roll_number = row[1].strip() if len(row) > 1 else ''
+                name = row[2].strip() if len(row) > 2 else ''
+                email = row[3].strip() if len(row) > 3 else ''
+
+                if not name:
+                    continue
 
                 classroom, _ = ClassRoom.objects.get_or_create(name=class_name)
 
@@ -178,44 +267,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                     Student.objects.create(
                         name=name,
                         email=email or None,
-                        roll_number=roll_number,
-                        classroom=classroom
-                    )
-                    created_count += 1
-        else:
-            # No header row: assume columns [class, roll_number, name, email?]
-            reader = csv.reader(io_string)
-            for row in reader:
-                if not row or all(not col.strip() for col in row):
-                    continue
-
-                class_name = row[0].strip() if len(row) > 0 else ''
-                roll_number = row[1].strip() if len(row) > 1 else ''
-                name = row[2].strip() if len(row) > 2 else ''
-                email = row[3].strip() if len(row) > 3 else ''
-
-                if not name:
-                    continue
-
-                classroom, _ = ClassRoom.objects.get_or_create(name=class_name or 'Unknown')
-
-                student = None
-                if roll_number:
-                    student = Student.objects.filter(classroom=classroom, roll_number=roll_number).first()
-                if not student:
-                    student = Student.objects.filter(classroom=classroom, name=name).first()
-
-                if student:
-                    student.name = name
-                    student.roll_number = roll_number or None
-                    student.email = email or None
-                    student.save()
-                    updated_count += 1
-                else:
-                    Student.objects.create(
-                        name=name,
-                        email=email or None,
-                        roll_number=roll_number,
+                        roll_number=roll_number or None,
                         classroom=classroom
                     )
                     created_count += 1
@@ -231,6 +283,6 @@ class ExamViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSuperAdminOrReadOnly]
 
 class StudentMarkViewSet(viewsets.ModelViewSet):
-    queryset = StudentMark.objects.all()
+    queryset = StudentMark.objects.select_related('student', 'exam', 'subject').all()
     serializer_class = StudentMarkSerializer
     permission_classes = [IsSuperAdmin]

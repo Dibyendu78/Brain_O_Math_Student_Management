@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 0;
+            color: #333333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        .header {
+            background-color: #0f172a;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            color: #fbbf24;
+            margin: 0;
+            font-size: 24px;
+            letter-spacing: 1px;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .content h2 {
+            color: #1e293b;
+            font-size: 22px;
+            margin-top: 0;
+        }
+        .credentials-box {
+            background-color: #f8fafc;
+            border-left: 4px solid #fbbf24;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+        }
+        .credentials-box p {
+            margin: 8px 0;
+            font-size: 16px;
+        }
+        .credentials-box strong {
+            color: #0f172a;
+            display: inline-block;
+            width: 100px;
+        }
+        .btn-container {
+            text-align: center;
+            margin: 35px 0 15px;
+        }
+        .btn {
+            display: inline-block;
+            background-color: #fbbf24;
+            color: #0f172a;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .footer {
+            background-color: #e2e8f0;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>DOON HERITAGE SCHOOL</h1>
+        </div>
+        <div class="content">
+            <h2>Welcome to the Faculty, {{ name }}!</h2>
+            <p>We are thrilled to welcome you to Doon Heritage School. Your {{ role_name }} account has been successfully created.</p>
+            <p>Please use the following credentials to access the Teacher Portal. We recommend changing your password after your first login.</p>
+            
+            <div class="credentials-box">
+                <p><strong>Username:</strong> {{ username }}</p>
+                <p><strong>Password:</strong> {{ password }}</p>
+            </div>
+            
+            <div class="btn-container">
+                <a href="{{ login_url }}" class="btn">Login to Portal</a>
+            </div>
+            
+            <p style="margin-top: 30px; font-size: 14px; color: #64748b;">
+                If you experience any issues accessing your account, please contact the IT Administrator.
+            </p>
+        </div>
+        <div class="footer">
+            &copy; 2026 Doon Heritage School. All Rights Reserved.<br>
+            Knowledge • Wisdom • Integrity
+        </div>
+    </div>
+</body>
+</html>

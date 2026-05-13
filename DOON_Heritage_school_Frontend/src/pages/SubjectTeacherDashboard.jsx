@@ -16,19 +16,38 @@ const SubjectTeacherDashboard = () => {
     const [selectedClass, setSelectedClass] = useState('');
     const [marksInput, setMarksInput] = useState({});
 
-    const roles = JSON.parse(localStorage.getItem('roles') || '[]');
+    // Student Filter State
+    const [studentSubjectFilter, setStudentSubjectFilter] = useState('');
+
+    const roles = JSON.parse(sessionStorage.getItem('roles') || '[]');
     const navigate = useNavigate();
 
     useEffect(() => {
         fetchData();
+
+        const handleFocus = () => fetchData();
+        window.addEventListener('focus', handleFocus);
+
+        const bc = new BroadcastChannel('app_updates');
+        bc.onmessage = (event) => {
+            if (event.data?.type === 'DATA_MUTATION') {
+                fetchData();
+            }
+        };
+
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            bc.close();
+        };
     }, []);
 
     useEffect(() => {
-        if (selectedExam && selectedSubject && selectedClass) {
+        if (selectedExam && selectedSubject) {
             const initialMarks = {};
-            const studentsInClass = students.filter(s => s.classroom.toString() === selectedClass);
-            studentsInClass.forEach(s => {
-                const existingMark = marks.find(m => m.student === s.id && m.exam.toString() === selectedExam && m.subject.toString() === selectedSubject);
+            const subjectId = selectedAssignment ? selectedAssignment.subject.toString() : '';
+
+            filteredStudents.forEach(s => {
+                const existingMark = marks.find(m => m.student === s.id && m.exam.toString() === selectedExam && m.subject.toString() === subjectId);
                 initialMarks[s.id] = existingMark ? existingMark.marks : '';
             });
             setMarksInput(initialMarks);
@@ -37,13 +56,20 @@ const SubjectTeacherDashboard = () => {
         }
     }, [selectedExam, selectedSubject, selectedClass, marks, students]);
 
-    const assignedClasses = Array.from(new Set(students.map(s => s.classroom)))
-        .map(id => students.find(s => s.classroom === id))
-        .map(s => ({ id: s.classroom, name: s.classroom_name }));
-    const filteredStudents = selectedClass ? students.filter(s => s.classroom.toString() === selectedClass) : [];
+    const assignments = subjects; // Since subjects from API are now assignments
 
-    const selectedClassName = assignedClasses.find(c => c.id.toString() === selectedClass)?.name;
-    const filteredSubjects = getFilteredSubjectsForClass(selectedClassName, subjects);
+    // Filter students by selected assignment's class
+    const selectedAssignment = assignments.find(a => a.id.toString() === selectedSubject);
+    const selectedClassId = selectedAssignment ? selectedAssignment.classroom.toString() : '';
+
+    // Extracted students matching the selected assignment's class
+    const filteredStudents = selectedClassId ? students.filter(s => s.classroom.toString() === selectedClassId) : [];
+
+    // Filter students for the "Students Enrolled" tab
+    const selectedFilterAssignment = assignments.find(a => a.id.toString() === studentSubjectFilter);
+    const displayedStudents = selectedFilterAssignment
+        ? students.filter(s => s.classroom === selectedFilterAssignment.classroom)
+        : students;
 
     const fetchData = async () => {
         try {
@@ -63,26 +89,27 @@ const SubjectTeacherDashboard = () => {
     };
 
     const handleLogout = () => {
-        localStorage.clear();
+        sessionStorage.clear();
         navigate('/login');
     };
 
     const handleSaveMark = async (studentId, markValue) => {
         if (markValue === '') return Promise.resolve();
-        const existingMark = marks.find(m => m.student === studentId && m.exam.toString() === selectedExam && m.subject.toString() === selectedSubject);
+        const subjectId = selectedAssignment ? selectedAssignment.subject.toString() : '';
+        const existingMark = marks.find(m => m.student === studentId && m.exam.toString() === selectedExam && m.subject.toString() === subjectId);
         try {
             if (existingMark) {
                 await api.put(`subject-teacher/marks/${existingMark.id}/`, {
                     student: studentId,
                     exam: selectedExam,
-                    subject: selectedSubject,
+                    subject: subjectId,
                     marks: markValue
                 });
             } else {
                 await api.post('subject-teacher/marks/', {
                     student: studentId,
                     exam: selectedExam,
-                    subject: selectedSubject,
+                    subject: subjectId,
                     marks: markValue
                 });
             }
@@ -147,9 +174,9 @@ const SubjectTeacherDashboard = () => {
                             <h3>Assigned Subjects</h3>
                             <div className="table-wrapper">
                                 <table>
-                                    <thead><tr><th>Subject Name</th></tr></thead>
+                                    <thead><tr><th>Class_Subject Name</th></tr></thead>
                                     <tbody>
-                                        {subjects.map(s => <tr key={s.id}><td>{s.name}</td></tr>)}
+                                        {assignments.map(a => <tr key={a.id}><td>{a.classroom_name}_{a.subject_name}</td></tr>)}
                                     </tbody>
                                 </table>
                             </div>
@@ -157,12 +184,33 @@ const SubjectTeacherDashboard = () => {
                     )}
                     {activeTab === 'students' && (
                         <div>
-                            <h3>Students Enrolled</h3>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                                <h3>Students Enrolled</h3>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8fafc', padding: '0.5rem', borderRadius: '8px' }}>
+                                    <label className="form-label" style={{ margin: 0 }}>Filter by Subject:</label>
+                                    <select
+                                        className="form-input"
+                                        style={{ width: '200px', margin: 0 }}
+                                        value={studentSubjectFilter}
+                                        onChange={e => setStudentSubjectFilter(e.target.value)}
+                                    >
+                                        <option value="">All Subjects</option>
+                                        {assignments.map(a => (
+                                            <option key={a.id} value={a.id}>
+                                                {a.classroom_name}_{a.subject_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
                             <div className="table-wrapper">
                                 <table>
                                     <thead><tr><th>Name</th><th>Email</th><th>Class</th></tr></thead>
                                     <tbody>
-                                        {students.map(s => <tr key={s.id}><td>{s.name}</td><td>{s.email}</td><td>{s.classroom_name}</td></tr>)}
+                                        {displayedStudents.map(s => <tr key={s.id}><td>{s.name}</td><td>{s.email}</td><td>{s.classroom_name}</td></tr>)}
+                                        {displayedStudents.length === 0 && (
+                                            <tr><td colSpan="3" style={{ textAlign: 'center', padding: '1rem' }}>No students found.</td></tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -172,8 +220,8 @@ const SubjectTeacherDashboard = () => {
                         <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                                 <h3>Student Marks for My Subjects</h3>
-                                {selectedExam && selectedSubject && selectedClass && filteredStudents.length > 0 && (
-                                    <button className="btn btn-primary" onClick={handleSaveAllMarks}>Save All Missing Marks</button>
+                                {selectedExam && selectedSubject && filteredStudents.length > 0 && (
+                                    <button className="btn btn-primary" onClick={handleSaveAllMarks}>Save All</button>
                                 )}
                             </div>
 
@@ -189,19 +237,12 @@ const SubjectTeacherDashboard = () => {
                                     <label className="form-label">Subject</label>
                                     <select className="form-input" value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}>
                                         <option value="">Choose Subject...</option>
-                                        {filteredSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select>
-                                </div>
-                                <div className="form-group mb-0" style={{ flexGrow: 1 }}>
-                                    <label className="form-label">Class</label>
-                                    <select className="form-input" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>
-                                        <option value="">Choose Class...</option>
-                                        {assignedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                        {assignments.map(a => <option key={a.id} value={a.id}>{a.classroom_name}_{a.subject_name}</option>)}
                                     </select>
                                 </div>
                             </div>
 
-                            {selectedExam && selectedSubject && selectedClass ? (
+                            {selectedExam && selectedSubject ? (
                                 <div className="table-wrapper">
                                     <table>
                                         <thead><tr><th>Student Name</th><th>Roll No</th><th>Class</th><th>Marks</th><th>Action</th></tr></thead>
@@ -240,7 +281,7 @@ const SubjectTeacherDashboard = () => {
                                 </div>
                             ) : (
                                 <div style={{ padding: '2rem', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', color: '#64748b' }}>
-                                    Please select an Exam, Subject, and Class to view and input marks inline.
+                                    Please select an Exam and Subject to view and input marks inline.
                                 </div>
                             )}
                         </div>

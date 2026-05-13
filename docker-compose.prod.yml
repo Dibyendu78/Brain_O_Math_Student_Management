@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: 
+      context: ./DOON_Heritage_Backend
+      dockerfile: Dockerfile.prod
+    container_name: doon_backend_prod
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: always
+
+  frontend:
+    build:
+      context: ./DOON_Heritage_school_Frontend
+      dockerfile: Dockerfile.prod
+    container_name: doon_frontend_prod
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always

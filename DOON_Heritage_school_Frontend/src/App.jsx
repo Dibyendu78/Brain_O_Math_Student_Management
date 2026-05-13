@@ -8,7 +8,7 @@ import SubjectTeacherDashboard from './pages/SubjectTeacherDashboard';
 import Home from './pages/Home';
 
 const PrivateRoute = ({ children }) => {
-    const token = localStorage.getItem('access');
+    const token = sessionStorage.getItem('access');
     return token ? children : <Navigate to="/login" />;
 };
 

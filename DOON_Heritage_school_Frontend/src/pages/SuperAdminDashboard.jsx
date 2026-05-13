@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -15,11 +15,13 @@ const SuperAdminDashboard = () => {
 
     // Export Filters
     const [exportClassFilter, setExportClassFilter] = useState('');
+    const [exportExamFilter, setExportExamFilter] = useState('');
+    const [fetchError, setFetchError] = useState('');
     const navigate = useNavigate();
 
     // Teacher Form State
     const [showTeacherForm, setShowTeacherForm] = useState(false);
-    const [teacherForm, setTeacherForm] = useState({ id: null, username: '', email: '', first_name: '', last_name: '', password: '', role: 'class_teacher', classes: [], subjects: [] });
+    const [teacherForm, setTeacherForm] = useState({ id: null, username: '', email: '', first_name: '', last_name: '', password: '', role: 'class_teacher', class_teacher_classes: [], subject_teacher_classes: [], subject_assignments: {} });
 
     // Class Form State
     const [newClassName, setNewClassName] = useState('');
@@ -32,14 +34,31 @@ const SuperAdminDashboard = () => {
     // Student Form State
     const [showStudentForm, setShowStudentForm] = useState(false);
     const [studentForm, setStudentForm] = useState({ id: null, name: '', email: '', roll_number: '', classroom: '' });
+    const [studentClassFilter, setStudentClassFilter] = useState('');
 
     useEffect(() => {
         fetchData();
+
+        const handleFocus = () => fetchData();
+        window.addEventListener('focus', handleFocus);
+
+        const bc = new BroadcastChannel('app_updates');
+        bc.onmessage = (event) => {
+            if (event.data?.type === 'DATA_MUTATION') {
+                fetchData();
+            }
+        };
+
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            bc.close();
+        };
     }, []);
 
     const fetchData = async () => {
         try {
-            const [uRes, cRes, sRes, stRes, eRes, mRes] = await Promise.all([
+            setFetchError('');
+            const [uRes, cRes, sRes, stRes, eRes, mRes] = await Promise.allSettled([
                 api.get('admin/users/'),
                 api.get('admin/classes/'),
                 api.get('admin/subjects/'),
@@ -47,19 +66,26 @@ const SuperAdminDashboard = () => {
                 api.get('admin/exams/'),
                 api.get('admin/marks/')
             ]);
-            setTeachers(uRes.data);
-            setClasses(cRes.data);
-            setSubjects(sRes.data);
-            setStudents(stRes.data);
-            setExams(eRes.data);
-            setMarks(mRes.data);
+            if (uRes.status === 'fulfilled') setTeachers(uRes.value.data);
+            if (cRes.status === 'fulfilled') setClasses(cRes.value.data);
+            if (sRes.status === 'fulfilled') setSubjects(sRes.value.data);
+            if (stRes.status === 'fulfilled') setStudents(stRes.value.data);
+            if (eRes.status === 'fulfilled') setExams(eRes.value.data);
+            if (mRes.status === 'fulfilled') setMarks(mRes.value.data);
+
+            const failed = [uRes, cRes, sRes, stRes, eRes, mRes].filter(r => r.status === 'rejected');
+            if (failed.length > 0) {
+                setFetchError('Some data failed to load. Check the console for details.');
+                failed.forEach(f => console.error('Fetch error:', f.reason));
+            }
         } catch (error) {
             console.error("Error fetching admin data", error);
+            setFetchError(error.message || "Network Error");
         }
     };
 
     const handleLogout = () => {
-        localStorage.clear();
+        sessionStorage.clear();
         navigate('/login');
     };
 
@@ -72,7 +98,7 @@ const SuperAdminDashboard = () => {
                 await api.post('admin/users/', teacherForm);
             }
             setShowTeacherForm(false);
-            setTeacherForm({ id: null, username: '', email: '', first_name: '', last_name: '', password: '', role: 'class_teacher', classes: [], subjects: [] });
+            setTeacherForm({ id: null, username: '', email: '', first_name: '', last_name: '', password: '', role: 'class_teacher', class_teacher_classes: [], subject_teacher_classes: [], subject_assignments: {} });
             fetchData();
         } catch (error) {
             console.error("Error saving teacher", error);
@@ -80,10 +106,14 @@ const SuperAdminDashboard = () => {
         }
     };
 
-    const handleDeleteTeacher = async (id) => {
+    const handleDeleteTeacher = async (teacher) => {
+        if (teacher.username === 'admin') {
+            alert("The primary admin account cannot be deleted.");
+            return;
+        }
         if (!window.confirm("Are you sure you want to delete this teacher? This cannot be undone.")) return;
         try {
-            await api.delete(`admin/users/${id}/`);
+            await api.delete(`admin/users/${teacher.id}/`);
             fetchData();
         } catch (error) {
             console.error("Error deleting teacher", error);
@@ -193,6 +223,28 @@ const SuperAdminDashboard = () => {
         }
     };
 
+    const handleSubjectAssignmentChange = (classId, subjectId, isChecked) => {
+        setTeacherForm(prev => {
+            const currentAssignments = prev.subject_assignments || {};
+            const classSubjects = currentAssignments[classId] || [];
+
+            let updatedClassSubjects;
+            if (isChecked) {
+                updatedClassSubjects = [...classSubjects, subjectId];
+            } else {
+                updatedClassSubjects = classSubjects.filter(id => id !== subjectId);
+            }
+
+            return {
+                ...prev,
+                subject_assignments: {
+                    ...currentAssignments,
+                    [classId]: updatedClassSubjects
+                }
+            };
+        });
+    };
+
     const handleStudentSubmit = async (e) => {
         e.preventDefault();
         try {
@@ -202,11 +254,18 @@ const SuperAdminDashboard = () => {
                 await api.post('admin/students/', studentForm);
             }
             setShowStudentForm(false);
-            setStudentForm({ id: null, name: '', email: '', roll_number: '', classroom: '' });
+            setStudentForm({ id: null, name: '', email: '', roll_number: '', classroom: '', parent_name: '', parent_mobile_number: '' });
             fetchData();
         } catch (error) {
             console.error("Error saving student", error);
-            alert("Failed to save student.");
+            if (error.response?.data?.non_field_errors) {
+                alert(error.response.data.non_field_errors.join(" "));
+            } else if (error.response?.data) {
+                const msgs = Object.entries(error.response.data).map(([k, v]) => `${k}: ${v}`);
+                alert("Failed to save student: " + msgs.join(" | "));
+            } else {
+                alert("Failed to save student.");
+            }
         }
     };
 
@@ -227,28 +286,27 @@ const SuperAdminDashboard = () => {
             name: student.name,
             email: student.email || '',
             roll_number: student.roll_number || '',
-            classroom: student.classroom
+            classroom: student.classroom,
+            parent_name: student.parent_name || '',
+            parent_mobile_number: student.parent_mobile_number || ''
         });
         setShowStudentForm(true);
     };
 
-    const handleExportExcel = () => {
+    const processedExamData = useMemo(() => {
         let relevantStudents = students;
 
         if (exportClassFilter) {
             relevantStudents = relevantStudents.filter(s => s.classroom.toString() === exportClassFilter);
         }
 
-        if (relevantStudents.length === 0) {
-            alert("No students found for the selected export filter.");
-            return;
-        }
-
         const studentDataMap = {};
         relevantStudents.forEach(stu => {
             studentDataMap[stu.id] = {
+                'Class': stu.classroom_name,
                 'Roll': stu.roll_number || '-',
-                'Name': stu.name
+                'Name': stu.name,
+                'Exam Type': new Set()
             };
         });
 
@@ -256,21 +314,30 @@ const SuperAdminDashboard = () => {
         const relevantMarks = marks.filter(m => studentDataMap[m.student]);
 
         relevantMarks.forEach(m => {
+            if (exportExamFilter && m.exam.toString() !== exportExamFilter) return;
             const colName = `${m.subject_name}_${m.exam_name}`;
             columnsFound.add(colName);
             studentDataMap[m.student][colName] = m.marks;
+            studentDataMap[m.student]['Exam Type'].add(m.exam_name);
         });
 
-        const dataForExcel = Object.values(studentDataMap);
+        const columns = Array.from(columnsFound).sort();
+        const data = Object.values(studentDataMap).map(row => ({
+            ...row,
+            'Exam Type': Array.from(row['Exam Type']).join(', ')
+        }));
 
-        if (dataForExcel.length === 0 || columnsFound.size === 0) {
-            alert("No mark data available to export for these students.");
+        return { data, columns };
+    }, [students, marks, exportClassFilter, exportExamFilter]);
+
+    const handleExportExcel = () => {
+        if (processedExamData.data.length === 0) {
+            alert("No data available to export with the current filters.");
             return;
         }
 
-        const header = ['Roll', 'Name', ...Array.from(columnsFound).sort()];
-
-        const worksheet = XLSX.utils.json_to_sheet(dataForExcel, { header });
+        const header = ['Class', 'Roll', 'Name', 'Exam Type', ...processedExamData.columns];
+        const worksheet = XLSX.utils.json_to_sheet(processedExamData.data, { header });
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "ExamData");
         XLSX.writeFile(workbook, "Student_Exam_Data.xlsx");
@@ -285,11 +352,16 @@ const SuperAdminDashboard = () => {
             last_name: teacher.last_name,
             password: '', // Blank password unless changing
             role: teacher.role || 'class_teacher',
-            classes: teacher.classes || [],
-            subjects: teacher.subjects || []
+            class_teacher_classes: teacher.class_teacher_classes || [],
+            subject_teacher_classes: teacher.subject_teacher_classes || [],
+            subject_assignments: teacher.subject_assignments || {}
         });
         setShowTeacherForm(true);
     };
+
+    const displayedStudents = studentClassFilter
+        ? students.filter(s => s.classroom.toString() === studentClassFilter)
+        : students;
 
     return (
         <div className="dashboard-layout">
@@ -302,6 +374,11 @@ const SuperAdminDashboard = () => {
             </nav>
 
             <main className="page-container">
+                {fetchError && (
+                    <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+                        Failed to fetch data: {fetchError}. Please try logging out and logging back in.
+                    </div>
+                )}
                 <div className="page-header">
                     <h1 className="page-title">Admin Dashboard</h1>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -321,23 +398,13 @@ const SuperAdminDashboard = () => {
                                 <h3>Teachers Directory</h3>
                                 <button className="btn btn-primary" onClick={() => {
                                     setShowTeacherForm(!showTeacherForm);
-                                    if (showTeacherForm) setTeacherForm({ id: null, username: '', email: '', first_name: '', last_name: '', password: '', role: 'class_teacher' });
+                                    if (showTeacherForm) setTeacherForm({ id: null, username: '', email: '', first_name: '', last_name: '', password: '', role: 'class_teacher', class_teacher_classes: [], subject_teacher_classes: [], subject_assignments: {} });
                                 }}>
                                     {showTeacherForm ? 'Cancel' : '+ Add Teacher'}
                                 </button>
                             </div>
 
                             {(() => {
-                                const adminFilteredSubjects = teacherForm.classes.length > 0
-                                    ? subjects.filter(s => {
-                                        const selectedClassNames = teacherForm.classes.map(id => classes.find(c => c.id === id)?.name);
-                                        return selectedClassNames.some(clsName => {
-                                            const allowedNames = classSubjectMapping[clsName] || [];
-                                            return allowedNames.includes(s.name);
-                                        });
-                                    })
-                                    : subjects;
-
                                 return showTeacherForm && (
                                     <form onSubmit={handleTeacherSubmit} style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
@@ -366,39 +433,71 @@ const SuperAdminDashboard = () => {
                                                 </select>
                                             </div>
 
-                                            {/* Multi-Select Assignments */}
-                                            <div className="form-group mb-0" style={{ gridColumn: '1 / -1' }}>
-                                                <label className="form-label">Assign Classes</label>
-                                                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                                                    {classes.map(c => (
-                                                        <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                            <input
-                                                                type="checkbox"
-                                                                value={c.id}
-                                                                checked={teacherForm.classes.includes(c.id)}
-                                                                onChange={(e) => handleCheckboxChange(e, 'classes')}
-                                                            />
-                                                            {c.name}
-                                                        </label>
-                                                    ))}
+                                            {/* Designations UI based on role */}
+                                            {(teacherForm.role === 'class_teacher' || teacherForm.role === 'both') && (
+                                                <div className="form-group mb-0" style={{ gridColumn: '1 / -1' }}>
+                                                    <label className="form-label">Class Teacher: Assign ONE Class</label>
+                                                    <select
+                                                        className="form-input"
+                                                        value={teacherForm.class_teacher_classes[0] || ''}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            setTeacherForm(prev => ({ ...prev, class_teacher_classes: val ? [parseInt(val)] : [] }));
+                                                        }}
+                                                    >
+                                                        <option value="">-- Select Class --</option>
+                                                        {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                    </select>
                                                 </div>
-                                            </div>
+                                            )}
 
                                             {(teacherForm.role === 'subject_teacher' || teacherForm.role === 'both') && (
                                                 <div className="form-group mb-0" style={{ gridColumn: '1 / -1' }}>
-                                                    <label className="form-label">Assign Subjects</label>
-                                                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                                                        {adminFilteredSubjects.map(s => (
-                                                            <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    value={s.id}
-                                                                    checked={teacherForm.subjects.includes(s.id)}
-                                                                    onChange={(e) => handleCheckboxChange(e, 'subjects')}
-                                                                />
-                                                                {s.name}
-                                                            </label>
-                                                        ))}
+                                                    <label className="form-label">Subject Teacher: Select Classes & Subjects</label>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                                        {classes.map(c => {
+                                                            const allowedSubjects = classSubjectMapping[c.name] || [];
+                                                            const subjectsForClass = subjects.filter(s => allowedSubjects.includes(s.name));
+                                                            if (subjectsForClass.length === 0) return null;
+                                                            return (
+                                                                <div key={c.id} style={{ padding: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+                                                                    <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem', cursor: 'pointer' }}>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={teacherForm.subject_teacher_classes.includes(c.id)}
+                                                                            onChange={(e) => {
+                                                                                const isChecked = e.target.checked;
+                                                                                setTeacherForm(prev => ({
+                                                                                    ...prev,
+                                                                                    subject_teacher_classes: isChecked
+                                                                                        ? [...prev.subject_teacher_classes, c.id]
+                                                                                        : prev.subject_teacher_classes.filter(id => id !== c.id)
+                                                                                }));
+                                                                            }}
+                                                                        />
+                                                                        Teach in {c.name}
+                                                                    </label>
+                                                                    {teacherForm.subject_teacher_classes.includes(c.id) && (
+                                                                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginLeft: '2rem' }}>
+                                                                            {subjectsForClass.map(s => {
+                                                                                const isSubjectChecked = teacherForm.subject_assignments[c.id]?.includes(s.id) || false;
+                                                                                return (
+                                                                                    <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem', cursor: 'pointer' }}>
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={isSubjectChecked}
+                                                                                            onChange={(e) => handleSubjectAssignmentChange(c.id, s.id, e.target.checked)}
+                                                                                            value={s.id}
+                                                                                        />
+                                                                                        {c.name}_{s.name}
+                                                                                    </label>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             )}
@@ -429,7 +528,20 @@ const SuperAdminDashboard = () => {
                                                         <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={() => editTeacher(t)}>
                                                             Edit
                                                         </button>
-                                                        <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', backgroundColor: '#fee2e2', color: '#dc2626', borderColor: '#fca5a5' }} onClick={() => handleDeleteTeacher(t.id)}>
+                                                        <button
+                                                            className="btn btn-secondary"
+                                                            style={{
+                                                                fontSize: '0.75rem',
+                                                                padding: '0.25rem 0.5rem',
+                                                                backgroundColor: t.username === 'admin' ? '#f3f4f6' : '#fee2e2',
+                                                                color: t.username === 'admin' ? '#9ca3af' : '#dc2626',
+                                                                borderColor: t.username === 'admin' ? '#d1d5db' : '#fca5a5',
+                                                                cursor: t.username === 'admin' ? 'not-allowed' : 'pointer'
+                                                            }}
+                                                            onClick={() => handleDeleteTeacher(t)}
+                                                            disabled={t.username === 'admin'}
+                                                            title={t.username === 'admin' ? 'Admin cannot be deleted' : 'Delete'}
+                                                        >
                                                             Delete
                                                         </button>
                                                     </div>
@@ -570,12 +682,16 @@ const SuperAdminDashboard = () => {
                     )}
                     {activeTab === 'students' && (
                         <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
                                 <h3>Manage Students</h3>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <select className="form-input" style={{ width: '150px', margin: 0 }} value={studentClassFilter} onChange={e => setStudentClassFilter(e.target.value)}>
+                                        <option value="">All Classes</option>
+                                        {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
                                     <button className="btn btn-primary" onClick={() => {
                                         setShowStudentForm(!showStudentForm);
-                                        if (showStudentForm) setStudentForm({ id: null, name: '', email: '', roll_number: '', classroom: '' });
+                                        if (showStudentForm) setStudentForm({ id: null, name: '', email: '', roll_number: '', classroom: '', parent_name: '', parent_mobile_number: '' });
                                     }}>
                                         {showStudentForm ? 'Cancel' : '+ Add Student'}
                                     </button>
@@ -596,7 +712,7 @@ const SuperAdminDashboard = () => {
                                 <form onSubmit={handleStudentSubmit} style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px', marginBottom: '1rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                                     <div className="form-group mb-0" style={{ flexGrow: 1 }}>
                                         <label className="form-label">Name</label>
-                                        <input type="text" className="form-input" required value={studentForm.name} onChange={e => setStudentForm({ ...studentForm, name: e.target.value })} />
+                                        <input type="text" className="form-input" required value={studentForm.name} onChange={e => setStudentForm({ ...studentForm, name: e.target.value })} pattern="^[A-Za-z\s]+$" title="Name can only contain alphabets and spaces" />
                                     </div>
                                     <div className="form-group mb-0" style={{ flexGrow: 1 }}>
                                         <label className="form-label">Email</label>
@@ -613,20 +729,30 @@ const SuperAdminDashboard = () => {
                                             {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                         </select>
                                     </div>
+                                    <div className="form-group mb-0" style={{ flexGrow: 1, minWidth: '200px' }}>
+                                        <label className="form-label">Parent Name</label>
+                                        <input type="text" className="form-input" value={studentForm.parent_name || ''} onChange={e => setStudentForm({ ...studentForm, parent_name: e.target.value })} />
+                                    </div>
+                                    <div className="form-group mb-0" style={{ flexGrow: 1, minWidth: '200px' }}>
+                                        <label className="form-label">Parent Mobile</label>
+                                        <input type="text" className="form-input" value={studentForm.parent_mobile_number || ''} onChange={e => setStudentForm({ ...studentForm, parent_mobile_number: e.target.value })} pattern="\d{10}" title="Mobile number must be exactly 10 digits" />
+                                    </div>
                                     <button type="submit" className="btn btn-primary">{studentForm.id ? 'Save Changes' : 'Add Student'}</button>
                                 </form>
                             )}
 
                             <div className="table-wrapper">
                                 <table>
-                                    <thead><tr><th>Name</th><th>Email</th><th>Roll No</th><th>Class</th><th>Actions</th></tr></thead>
+                                    <thead><tr><th>Name</th><th>Email</th><th>Roll No</th><th>Class</th><th>Parent Name</th><th>Parent Mobile</th><th>Actions</th></tr></thead>
                                     <tbody>
-                                        {students.map(s => (
+                                        {displayedStudents.map(s => (
                                             <tr key={s.id}>
                                                 <td>{s.name}</td>
                                                 <td>{s.email || '-'}</td>
                                                 <td>{s.roll_number || '-'}</td>
                                                 <td>{s.classroom_name}</td>
+                                                <td>{s.parent_name || '-'}</td>
+                                                <td>{s.parent_mobile_number || '-'}</td>
                                                 <td>
                                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                                                         <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={() => editStudent(s)}>
@@ -655,33 +781,46 @@ const SuperAdminDashboard = () => {
                                         <option value="">All Classes</option>
                                         {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
+                                    <select className="form-input" style={{ width: '150px', margin: 0 }} value={exportExamFilter} onChange={e => setExportExamFilter(e.target.value)}>
+                                        <option value="">All Exams</option>
+                                        {exams.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                                    </select>
                                     <button className="btn btn-primary" onClick={handleExportExcel}>
                                         Export to Excel
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="table-wrapper">
-                                <table>
-                                    <thead><tr><th>Student</th><th>Roll No</th><th>Class</th><th>Exam</th><th>Subject</th><th>Marks</th></tr></thead>
+                            <div className="table-wrapper" style={{ overflowX: 'auto' }}>
+                                <table style={{ minWidth: 'max-content' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>Class</th>
+                                            <th>Roll No</th>
+                                            <th>Student Name</th>
+                                            <th>Exam Type</th>
+                                            {processedExamData.columns.map(col => <th key={col}>{col.replace('_', ' ')}</th>)}
+                                        </tr>
+                                    </thead>
                                     <tbody>
-                                        {marks.map(m => {
-                                            const stu = students.find(s => s.id === m.student);
-                                            // Optional on-screen filtering logic. For now just show all or just the selected? 
-                                            // The user asked to export based on choice. Let's filter the display too for convenience.
-                                            if (exportClassFilter && stu && stu.classroom.toString() !== exportClassFilter) return null;
-
-                                            return (
-                                                <tr key={m.id}>
-                                                    <td>{m.student_name}</td>
-                                                    <td>{stu ? stu.roll_number : '-'}</td>
-                                                    <td>{stu ? stu.classroom_name : '-'}</td>
-                                                    <td>{m.exam_name}</td>
-                                                    <td>{m.subject_name}</td>
-                                                    <td><span className="badge badge-purple">{m.marks}</span></td>
-                                                </tr>
-                                            );
-                                        })}
+                                        {processedExamData.data.map((row, idx) => (
+                                            <tr key={idx}>
+                                                <td>{row['Class']}</td>
+                                                <td>{row['Roll']}</td>
+                                                <td>{row['Name']}</td>
+                                                <td>{row['Exam Type']}</td>
+                                                {processedExamData.columns.map(col => (
+                                                    <td key={col}>
+                                                        {row[col] !== undefined ? <span className="badge badge-purple">{row[col]}</span> : <span style={{ color: '#ccc' }}>-</span>}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                        {processedExamData.data.length === 0 && (
+                                            <tr>
+                                                <td colSpan={3 + processedExamData.columns.length} style={{ textAlign: 'center', padding: '1rem' }}>No data available</td>
+                                            </tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>

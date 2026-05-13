@@ -6,20 +6,23 @@ const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     const navigate = useNavigate();
 
     const handleLogin = async (e) => {
         e.preventDefault();
+        setIsLoading(true);
+        setError('');
         try {
             const res = await api.post('token/', { username, password });
-            localStorage.setItem('access', res.data.access);
-            localStorage.setItem('refresh', res.data.refresh);
+            sessionStorage.setItem('access', res.data.access);
+            sessionStorage.setItem('refresh', res.data.refresh);
 
             // Get user details
             const userRes = await api.get('auth/me/');
             const roles = userRes.data.roles;
 
-            localStorage.setItem('roles', JSON.stringify(roles));
+            sessionStorage.setItem('roles', JSON.stringify(roles));
 
             if (roles.includes('admin')) {
                 navigate('/admin');
@@ -32,16 +35,33 @@ const Login = () => {
                 navigate('/subject-teacher');
             } else {
                 setError("You don't have any roles assigned.");
+                setIsLoading(false);
             }
         } catch (err) {
-            setError('Invalid credentials');
+            setIsLoading(false);
+            if (err.response && err.response.data && err.response.data.detail) {
+                setError(err.response.data.detail);
+            } else if (err.response && err.response.data && typeof err.response.data === 'object') {
+                // If it's a different kind of error object
+                const errorMsg = Object.values(err.response.data).flat().join(' ');
+                setError(errorMsg || 'Invalid credentials. Please try again.');
+            } else {
+                setError('Invalid credentials. Please try again.');
+            }
         }
     };
 
     return (
-        <div className="auth-bg">
-            <div className="glass-container auth-card">
-                <h1 className="auth-title">Welcome Back</h1>
+        <>
+            {isLoading && (
+                <div className="loading-overlay">
+                    <div className="spinner"></div>
+                    <div className="loading-text">Authenticating...</div>
+                </div>
+            )}
+            <div className="auth-bg">
+                <div className="glass-container auth-card">
+                    <h1 className="auth-title">Welcome Back</h1>
                 <p className="auth-subtitle">Sign in to your account</p>
                 {error && <div style={{ color: 'var(--error)', marginBottom: '1rem', textAlign: 'center' }}>{error}</div>}
 
@@ -74,6 +94,7 @@ const Login = () => {
                 </form>
             </div>
         </div>
+        </>
     );
 };
 

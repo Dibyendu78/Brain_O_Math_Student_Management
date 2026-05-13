@@ -4,12 +4,15 @@ from django.contrib.auth.models import User
 
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
-    classes = serializers.SerializerMethodField()
+    class_teacher_classes = serializers.SerializerMethodField()
+    subject_teacher_classes = serializers.SerializerMethodField()
+    classes = serializers.SerializerMethodField() # Keep for backward compatibility if needed
     subjects = serializers.SerializerMethodField()
+    subject_assignments = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'classes', 'subjects']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'classes', 'class_teacher_classes', 'subject_teacher_classes', 'subjects', 'subject_assignments']
 
     def get_role(self, obj):
         roles = []
@@ -24,22 +27,47 @@ class UserSerializer(serializers.ModelSerializer):
     def get_classes(self, obj):
         classes = set()
         if hasattr(obj, 'class_teacher_profile'):
-            classes.update(obj.class_teacher_profile.classes.values_list('id', flat=True))
+            classes.update(obj.class_teacher_profile.class_ids or [])
         if hasattr(obj, 'subject_teacher_profile'):
-            classes.update(obj.subject_teacher_profile.classes.values_list('id', flat=True))
+            classes.update([a.classroom_id for a in obj.subject_teacher_profile.assignments.all()])
         return list(classes)
+
+    def get_class_teacher_classes(self, obj):
+        if hasattr(obj, 'class_teacher_profile'):
+            return obj.class_teacher_profile.class_ids or []
+        return []
+
+    def get_subject_teacher_classes(self, obj):
+        if hasattr(obj, 'subject_teacher_profile'):
+            return list(set([a.classroom_id for a in obj.subject_teacher_profile.assignments.all()]))
+        return []
 
     def get_subjects(self, obj):
         if hasattr(obj, 'subject_teacher_profile'):
-            return list(obj.subject_teacher_profile.subjects.values_list('id', flat=True))
+            return list(set([a.subject_id for a in obj.subject_teacher_profile.assignments.all()]))
         return []
+        
+    def get_subject_assignments(self, obj):
+        assignments = {}
+        if hasattr(obj, 'subject_teacher_profile'):
+            for assignment in obj.subject_teacher_profile.assignments.all():
+                class_id = assignment.classroom_id
+                subject_id = assignment.subject_id
+                if class_id not in assignments:
+                    assignments[class_id] = []
+                assignments[class_id].append(subject_id)
+        return assignments
 
 class ClassRoomSerializer(serializers.ModelSerializer):
-    subjects = serializers.StringRelatedField(many=True, read_only=True)
+    subject_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        default=list,
+        help_text="List of subject IDs"
+    )
 
     class Meta:
         model = ClassRoom
-        fields = '__all__'
+        fields = ['id', 'name', 'subject_ids']
 
 class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
@@ -52,7 +80,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = ['id', 'name', 'email', 'roll_number', 'classroom', 'classroom_name']
+        fields = ['id', 'name', 'email', 'roll_number', 'parent_name', 'parent_mobile_number', 'date_of_birth', 'residential_address', 'height_in_cm', 'classroom', 'classroom_name']
 
     def validate_email(self, value):
         if value == '':

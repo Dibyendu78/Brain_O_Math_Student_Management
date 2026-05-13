@@ -1,11 +1,13 @@
 from rest_framework import serializers
 from .models import ClassTeacherProfile
-from Student.serializers import UserSerializer, ClassRoomSerializer
 
 class ClassTeacherProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
-    classes = ClassRoomSerializer(many=True, read_only=True)
+    class_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        default=list,
+        help_text="List of classroom IDs"
+    )
     
     class Meta:
         model = ClassTeacherProfile
-        fields = ['id', 'user', 'classes']
+        fields = ['id', 'user', 'class_ids']
