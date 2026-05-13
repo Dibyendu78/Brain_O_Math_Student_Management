@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from importlib.util import find_spec
+from datetime import timedelta
 
 load_dotenv()
 
@@ -191,3 +192,9 @@ DEBUG_EMAIL = os.environ.get('DEBUG_EMAIL', 'false').lower() == 'true'
 BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 DB_PASSWORD = os.environ.get('DB_PASSWORD')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000/login')
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
