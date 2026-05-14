@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
-import { getFilteredSubjectsForClass } from '../utils/classSubjectMapping';
 
 const SubjectTeacherDashboard = () => {
     const [subjects, setSubjects] = useState([]);
@@ -15,6 +14,12 @@ const SubjectTeacherDashboard = () => {
     const [selectedSubject, setSelectedSubject] = useState('');
     const [selectedClass, setSelectedClass] = useState('');
     const [marksInput, setMarksInput] = useState({});
+    const [excelFile, setExcelFile] = useState(null);
+    const [excelUploadResult, setExcelUploadResult] = useState(null);
+    const [excelMessage, setExcelMessage] = useState(null);
+    const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
+    const [isUploadingExcel, setIsUploadingExcel] = useState(false);
+    const [excelInputKey, setExcelInputKey] = useState(0);
 
     // Student Filter State
     const [studentSubjectFilter, setStudentSubjectFilter] = useState('');
@@ -57,6 +62,15 @@ const SubjectTeacherDashboard = () => {
     }, [selectedExam, selectedSubject, selectedClass, marks, students]);
 
     const assignments = subjects; // Since subjects from API are now assignments
+    const assignedClasses = Array.from(
+        new Map(assignments.map(a => [a.classroom, { id: a.classroom, name: a.classroom_name }])).values()
+    );
+    const assignmentsForSelectedClass = selectedClass
+        ? assignments.filter(a => a.classroom.toString() === selectedClass)
+        : assignments;
+    const examsForSelectedClass = selectedClass
+        ? exams.filter(ex => !ex.classroom_ids || ex.classroom_ids.includes(parseInt(selectedClass)))
+        : exams;
 
     // Filter students by selected assignment's class
     const selectedAssignment = assignments.find(a => a.id.toString() === selectedSubject);
@@ -145,6 +159,80 @@ const SubjectTeacherDashboard = () => {
         }
     };
 
+    const handleDownloadExcel = async () => {
+        if (!selectedClass || !selectedExam || !selectedAssignment) {
+            alert("Please choose class, exam type, and subject first.");
+            return;
+        }
+
+        setIsDownloadingExcel(true);
+        setExcelMessage({ type: 'info', text: 'Preparing Excel file. Your download will start shortly.' });
+        try {
+            const params = new URLSearchParams({
+                class_name: selectedAssignment.classroom_name,
+                subject_name: selectedAssignment.subject_name,
+                exam_id: selectedExam
+            });
+            const response = await api.get(`subject-teacher/marks-template/?${params.toString()}`, {
+                responseType: 'blob'
+            });
+
+            const disposition = response.headers['content-disposition'] || '';
+            const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+            const filename = filenameMatch?.[1] || `${selectedAssignment.classroom_name}_${selectedAssignment.subject_name}_marks.xlsx`;
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            setExcelMessage({ type: 'success', text: 'Excel download started successfully. Fill only the Marks Obtained column, save the file, then upload it here.' });
+        } catch (error) {
+            console.error("Error downloading Excel template", error);
+            setExcelMessage({ type: 'error', text: error.response?.data?.error || "Failed to download Excel template." });
+        } finally {
+            setIsDownloadingExcel(false);
+        }
+    };
+
+    const handleUploadExcel = async () => {
+        if (!selectedClass || !selectedExam || !selectedAssignment) {
+            alert("Please choose class, exam type, and subject first.");
+            return;
+        }
+        if (!excelFile) {
+            alert("Please choose an Excel file to upload.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', excelFile);
+        formData.append('exam_id', selectedExam);
+
+        setIsUploadingExcel(true);
+        setExcelMessage({ type: 'info', text: 'Uploading Excel and updating marks. Please wait until this finishes.' });
+        try {
+            const response = await api.post('subject-teacher/marks-upload/', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            setExcelUploadResult(response.data);
+            setExcelFile(null);
+            setExcelInputKey(prev => prev + 1);
+            fetchData();
+            setExcelMessage({
+                type: response.data.failed > 0 ? 'warning' : 'success',
+                text: `Excel uploaded successfully. Saved ${response.data.saved} row(s), failed ${response.data.failed}.`
+            });
+        } catch (error) {
+            console.error("Error uploading Excel", error);
+            setExcelMessage({ type: 'error', text: error.response?.data?.error || "Failed to upload Excel." });
+        } finally {
+            setIsUploadingExcel(false);
+        }
+    };
+
     return (
         <div className="dashboard-layout">
             <nav className="navbar">
@@ -227,18 +315,113 @@ const SubjectTeacherDashboard = () => {
 
                             <div style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px', marginBottom: '1rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                                 <div className="form-group mb-0" style={{ flexGrow: 1 }}>
+                                    <label className="form-label">Class</label>
+                                    <select
+                                        className="form-input"
+                                        value={selectedClass}
+                                        onChange={e => {
+                                            setSelectedClass(e.target.value);
+                                            setSelectedSubject('');
+                                            setSelectedExam('');
+                                            setExcelUploadResult(null);
+                                            setExcelMessage(null);
+                                        }}
+                                    >
+                                        <option value="">Choose Class...</option>
+                                        {assignedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="form-group mb-0" style={{ flexGrow: 1 }}>
                                     <label className="form-label">Exam Type</label>
                                     <select className="form-input" value={selectedExam} onChange={e => setSelectedExam(e.target.value)}>
                                         <option value="">Choose Exam...</option>
-                                        {exams.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+                                        {examsForSelectedClass.map(ex => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
                                     </select>
                                 </div>
                                 <div className="form-group mb-0" style={{ flexGrow: 1 }}>
                                     <label className="form-label">Subject</label>
                                     <select className="form-input" value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}>
                                         <option value="">Choose Subject...</option>
-                                        {assignments.map(a => <option key={a.id} value={a.id}>{a.classroom_name}_{a.subject_name}</option>)}
+                                        {assignmentsForSelectedClass.map(a => <option key={a.id} value={a.id}>{a.subject_name}</option>)}
                                     </select>
+                                </div>
+                                <div className="form-group mb-0" style={{ flexBasis: '100%' }}>
+                                    <label className="form-label">Excel Marks Entry</label>
+                                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', padding: '0.85rem', borderRadius: '8px', marginBottom: '0.75rem', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                                        <strong>How to use Excel marks entry:</strong>
+                                        <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+                                            <li>Choose the class, exam type, and subject above.</li>
+                                            <li>Click Download Excel. The sheet will include Roll, Student Name, Class, Subject, and Full Marks.</li>
+                                            <li>Open the downloaded file and enter marks only in the Marks Obtained column.</li>
+                                            <li>Save the Excel file as .xlsx without changing the Roll, Class, Subject, or Full Marks columns.</li>
+                                            <li>Select the saved file here and click Upload. The system will validate every row and update marks.</li>
+                                        </ol>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            onClick={handleDownloadExcel}
+                                            disabled={isDownloadingExcel || isUploadingExcel}
+                                        >
+                                            {isDownloadingExcel ? 'Preparing...' : 'Download Excel'}
+                                        </button>
+                                        <input
+                                            key={excelInputKey}
+                                            type="file"
+                                            accept=".xlsx"
+                                            className="form-input"
+                                            style={{ maxWidth: '280px', margin: 0 }}
+                                            onChange={e => setExcelFile(e.target.files?.[0] || null)}
+                                            disabled={isUploadingExcel || isDownloadingExcel}
+                                        />
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary"
+                                            onClick={handleUploadExcel}
+                                            disabled={isUploadingExcel || isDownloadingExcel}
+                                        >
+                                            {isUploadingExcel ? 'Uploading...' : 'Upload'}
+                                        </button>
+                                    </div>
+                                    {(isDownloadingExcel || isUploadingExcel) && (
+                                        <div style={{ marginTop: '0.75rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                                                <span>{isDownloadingExcel ? 'Download starting...' : 'Upload in progress...'}</span>
+                                                <span>Please wait</span>
+                                            </div>
+                                            <div style={{ height: '8px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                                                <div style={{ height: '100%', width: '100%', background: 'linear-gradient(90deg, #2563eb, #22c55e)', borderRadius: '999px' }} />
+                                            </div>
+                                        </div>
+                                    )}
+                                    {excelMessage && (
+                                        <div
+                                            style={{
+                                                marginTop: '0.75rem',
+                                                padding: '0.75rem',
+                                                borderRadius: '8px',
+                                                border: `1px solid ${excelMessage.type === 'error' ? '#fecaca' : excelMessage.type === 'warning' ? '#fde68a' : excelMessage.type === 'success' ? '#bbf7d0' : '#bfdbfe'}`,
+                                                background: excelMessage.type === 'error' ? '#fef2f2' : excelMessage.type === 'warning' ? '#fffbeb' : excelMessage.type === 'success' ? '#f0fdf4' : '#eff6ff',
+                                                color: excelMessage.type === 'error' ? '#991b1b' : excelMessage.type === 'warning' ? '#92400e' : excelMessage.type === 'success' ? '#166534' : '#1e3a8a',
+                                                fontSize: '0.9rem'
+                                            }}
+                                        >
+                                            {excelMessage.text}
+                                        </div>
+                                    )}
+                                    {excelUploadResult && (
+                                        <div style={{ marginTop: '0.75rem', color: '#334155', fontSize: '0.9rem' }}>
+                                            Processed {excelUploadResult.processed} rows. Saved {excelUploadResult.saved}. Failed {excelUploadResult.failed}.
+                                            {excelUploadResult.failed_rows?.length > 0 && (
+                                                <ul style={{ marginTop: '0.5rem', paddingLeft: '1.25rem' }}>
+                                                    {excelUploadResult.failed_rows.slice(0, 5).map(item => (
+                                                        <li key={`${item.row}-${item.reason}`}>Row {item.row}: {item.reason}</li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

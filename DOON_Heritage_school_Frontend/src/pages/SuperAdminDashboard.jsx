@@ -17,6 +17,7 @@ const SuperAdminDashboard = () => {
     const [exportClassFilter, setExportClassFilter] = useState('');
     const [exportExamFilter, setExportExamFilter] = useState('');
     const [fetchError, setFetchError] = useState('');
+    const [adminMessage, setAdminMessage] = useState(null);
     const navigate = useNavigate();
 
     // Teacher Form State
@@ -25,11 +26,17 @@ const SuperAdminDashboard = () => {
 
     // Class Form State
     const [newClassName, setNewClassName] = useState('');
+    const [newClassSubjectIds, setNewClassSubjectIds] = useState([]);
+    const [editingClassId, setEditingClassId] = useState(null);
+    const [editingClassName, setEditingClassName] = useState('');
+    const [editingClassSubjectIds, setEditingClassSubjectIds] = useState([]);
     // Subject Form State
     const [newSubjectName, setNewSubjectName] = useState('');
     // Exam Form State
     const [newExamName, setNewExamName] = useState('');
     const [newExamDate, setNewExamDate] = useState('');
+    const [newExamFullMarks, setNewExamFullMarks] = useState('');
+    const [newExamClassIds, setNewExamClassIds] = useState([]);
 
     // Student Form State
     const [showStudentForm, setShowStudentForm] = useState(false);
@@ -54,6 +61,26 @@ const SuperAdminDashboard = () => {
             bc.close();
         };
     }, []);
+
+    useEffect(() => {
+        if (!adminMessage) return;
+        const timer = setTimeout(() => setAdminMessage(null), 5000);
+        return () => clearTimeout(timer);
+    }, [adminMessage]);
+
+    const showAdminMessage = (type, text) => {
+        setAdminMessage({ type, text });
+    };
+
+    const getMessageStyle = (type) => {
+        if (type === 'error') {
+            return { background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' };
+        }
+        if (type === 'warning') {
+            return { background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a' };
+        }
+        return { background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0' };
+    };
 
     const fetchData = async () => {
         try {
@@ -99,9 +126,11 @@ const SuperAdminDashboard = () => {
             }
             setShowTeacherForm(false);
             setTeacherForm({ id: null, username: '', email: '', first_name: '', last_name: '', password: '', role: 'class_teacher', class_teacher_classes: [], subject_teacher_classes: [], subject_assignments: {} });
+            showAdminMessage('success', teacherForm.id ? 'Teacher updated successfully.' : 'Teacher created successfully.');
             fetchData();
         } catch (error) {
             console.error("Error saving teacher", error);
+            showAdminMessage('error', 'Failed to save teacher. Username might exist.');
             alert("Failed to save teacher. Username might exist.");
         }
     };
@@ -114,23 +143,92 @@ const SuperAdminDashboard = () => {
         if (!window.confirm("Are you sure you want to delete this teacher? This cannot be undone.")) return;
         try {
             await api.delete(`admin/users/${teacher.id}/`);
+            showAdminMessage('success', 'Teacher deleted successfully.');
             fetchData();
         } catch (error) {
             console.error("Error deleting teacher", error);
+            showAdminMessage('error', 'Failed to delete teacher.');
             alert("Failed to delete teacher.");
         }
+    };
+
+    const getSubjectsForClassName = (className) => {
+        const allowedSubjectNames = classSubjectMapping[className.trim()] || [];
+        return subjects.filter(subject => allowedSubjectNames.includes(subject.name));
+    };
+
+    const getSubjectNamesByIds = (subjectIds = []) => {
+        const subjectNameMap = new Map(subjects.map(subject => [subject.id, subject.name]));
+        return subjectIds.map(id => subjectNameMap.get(id)).filter(Boolean);
+    };
+
+    const handleClassNameChange = (className) => {
+        setNewClassName(className);
+        setNewClassSubjectIds(getSubjectsForClassName(className).map(subject => subject.id));
+    };
+
+    const handleNewClassSubjectChange = (subjectId, isChecked) => {
+        setNewClassSubjectIds(prev => (
+            isChecked ? [...prev, subjectId] : prev.filter(id => id !== subjectId)
+        ));
+    };
+
+    const toggleSubjectId = (subjectId, isChecked, setter) => {
+        setter(prev => (
+            isChecked ? [...prev, subjectId] : prev.filter(id => id !== subjectId)
+        ));
     };
 
     const handleCreateClass = async (e) => {
         e.preventDefault();
         if (!newClassName.trim()) return;
         try {
-            await api.post('admin/classes/', { name: newClassName });
+            const response = await api.post('admin/classes/', {
+                name: newClassName.trim(),
+                subject_ids: newClassSubjectIds
+            });
             setNewClassName('');
-            fetchData();
+            setNewClassSubjectIds([]);
+            setClasses(prev => (
+                prev.some(c => c.id === response.data.id)
+                    ? prev.map(c => c.id === response.data.id ? response.data : c)
+                    : [...prev, response.data]
+            ));
+            showAdminMessage('success', 'Class added successfully with selected subjects.');
         } catch (error) {
             console.error("Error creating class", error);
+            showAdminMessage('error', 'Failed to create class. It might already exist.');
             alert("Failed to create class. It might already exist.");
+        }
+    };
+
+    const startEditClass = (classroom) => {
+        setEditingClassId(classroom.id);
+        setEditingClassName(classroom.name);
+        setEditingClassSubjectIds(classroom.subject_ids || []);
+    };
+
+    const cancelEditClass = () => {
+        setEditingClassId(null);
+        setEditingClassName('');
+        setEditingClassSubjectIds([]);
+    };
+
+    const handleUpdateClass = async (e) => {
+        e.preventDefault();
+        if (!editingClassId || !editingClassName.trim()) return;
+        try {
+            const response = await api.put(`admin/classes/${editingClassId}/`, {
+                name: editingClassName.trim(),
+                subject_ids: editingClassSubjectIds
+            });
+            setClasses(prev => prev.map(c => c.id === response.data.id ? response.data : c));
+            cancelEditClass();
+            showAdminMessage('success', 'Class subject mapping updated successfully.');
+        } catch (error) {
+            console.error("Error updating class", error);
+            showAdminMessage('error', 'Failed to update class. The class name might already exist.');
+            alert("Failed to update class. The class name might already exist.");
         }
     };
 
@@ -138,9 +236,11 @@ const SuperAdminDashboard = () => {
         if (!window.confirm("Are you sure you want to delete this class? This may delete all students in it!")) return;
         try {
             await api.delete(`admin/classes/${id}/`);
+            showAdminMessage('success', 'Class deleted successfully.');
             fetchData();
         } catch (error) {
             console.error("Error deleting class", error);
+            showAdminMessage('error', 'Failed to delete class.');
             alert("Failed to delete class.");
         }
     };
@@ -151,9 +251,11 @@ const SuperAdminDashboard = () => {
         try {
             await api.post('admin/subjects/', { name: newSubjectName });
             setNewSubjectName('');
+            showAdminMessage('success', 'Subject added successfully.');
             fetchData();
         } catch (error) {
             console.error("Error creating subject", error);
+            showAdminMessage('error', 'Failed to create subject. It might already exist.');
             alert("Failed to create subject. It might already exist.");
         }
     };
@@ -162,34 +264,57 @@ const SuperAdminDashboard = () => {
         if (!window.confirm("Are you sure you want to delete this subject?")) return;
         try {
             await api.delete(`admin/subjects/${id}/`);
+            showAdminMessage('success', 'Subject deleted successfully.');
             fetchData();
         } catch (error) {
             console.error("Error deleting subject", error);
+            showAdminMessage('error', 'Failed to delete subject.');
             alert("Failed to delete subject.");
         }
     };
 
     const handleCreateExam = async (e) => {
         e.preventDefault();
-        if (!newExamName.trim() || !newExamDate) return;
+        if (!newExamName.trim() || !newExamDate || !newExamFullMarks || newExamClassIds.length === 0) {
+            alert("Please enter exam name, date, full marks, and select at least one class.");
+            return;
+        }
+
         try {
-            await api.post('admin/exams/', { name: newExamName, date: newExamDate });
+            await api.post('admin/exams/', {
+                name: newExamName,
+                date: newExamDate,
+                full_marks: Number(newExamFullMarks),
+                class_ids: newExamClassIds
+            });
             setNewExamName('');
             setNewExamDate('');
+            setNewExamFullMarks('');
+            setNewExamClassIds([]);
+            showAdminMessage('success', 'Exam added successfully.');
             fetchData();
         } catch (error) {
             console.error("Error creating exam", error);
+            showAdminMessage('error', 'Failed to create exam. Please check dates and ensure it does not exist.');
             alert("Failed to create exam. Please check dates and ensure it does not exist.");
         }
+    };
+
+    const handleExamClassChange = (classId, isChecked) => {
+        setNewExamClassIds(prev => (
+            isChecked ? [...prev, classId] : prev.filter(id => id !== classId)
+        ));
     };
 
     const handleDeleteExam = async (id) => {
         if (!window.confirm("Are you sure you want to delete this exam? This will erase all marks for this exam!")) return;
         try {
             await api.delete(`admin/exams/${id}/`);
+            showAdminMessage('success', 'Exam deleted successfully.');
             fetchData();
         } catch (error) {
             console.error("Error deleting exam", error);
+            showAdminMessage('error', 'Failed to delete exam.');
             alert("Failed to delete exam.");
         }
     };
@@ -205,10 +330,12 @@ const SuperAdminDashboard = () => {
             await api.post('admin/students/upload_csv/', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
+            showAdminMessage('success', 'Students uploaded successfully from CSV.');
             alert('Students uploaded successfully!');
             fetchData();
         } catch (error) {
             console.error("Error uploading CSV", error);
+            showAdminMessage('error', "Failed to upload CSV. Please make sure headers match 'name', 'class_name', 'roll_number', etc.");
             alert("Failed to upload CSV. Please make sure headers match 'name', 'class_name', 'roll_number', etc.");
         }
         e.target.value = null; // reset input
@@ -255,9 +382,11 @@ const SuperAdminDashboard = () => {
             }
             setShowStudentForm(false);
             setStudentForm({ id: null, name: '', email: '', roll_number: '', classroom: '', parent_name: '', parent_mobile_number: '' });
+            showAdminMessage('success', studentForm.id ? 'Student updated successfully.' : 'Student added successfully.');
             fetchData();
         } catch (error) {
             console.error("Error saving student", error);
+            showAdminMessage('error', 'Failed to save student.');
             if (error.response?.data?.non_field_errors) {
                 alert(error.response.data.non_field_errors.join(" "));
             } else if (error.response?.data) {
@@ -273,9 +402,11 @@ const SuperAdminDashboard = () => {
         if (!window.confirm("Are you sure you want to delete this student?")) return;
         try {
             await api.delete(`admin/students/${id}/`);
+            showAdminMessage('success', 'Student deleted successfully.');
             fetchData();
         } catch (error) {
             console.error("Error deleting student", error);
+            showAdminMessage('error', 'Failed to delete student.');
             alert("Failed to delete student.");
         }
     };
@@ -341,6 +472,7 @@ const SuperAdminDashboard = () => {
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "ExamData");
         XLSX.writeFile(workbook, "Student_Exam_Data.xlsx");
+        showAdminMessage('success', 'Exam data Excel download started successfully.');
     };
 
     const editTeacher = (teacher) => {
@@ -377,6 +509,11 @@ const SuperAdminDashboard = () => {
                 {fetchError && (
                     <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
                         Failed to fetch data: {fetchError}. Please try logging out and logging back in.
+                    </div>
+                )}
+                {adminMessage && (
+                    <div style={{ ...getMessageStyle(adminMessage.type), padding: '0.85rem 1rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.95rem' }}>
+                        {adminMessage.text}
                     </div>
                 )}
                 <div className="page-header">
@@ -558,34 +695,96 @@ const SuperAdminDashboard = () => {
                         <div>
                             <h3>Manage Classes</h3>
 
-                            <form onSubmit={handleCreateClass} style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'flex-end' }}>
+                            <form onSubmit={handleCreateClass} style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                                 <div className="form-group mb-0" style={{ flexGrow: 1, maxWidth: '300px' }}>
                                     <label className="form-label">New Class Name</label>
                                     <input
                                         type="text"
                                         className="form-input"
-                                        placeholder="e.g., Class 10 A"
+                                        placeholder="e.g., Class1"
                                         value={newClassName}
-                                        onChange={(e) => setNewClassName(e.target.value)}
+                                        onChange={(e) => handleClassNameChange(e.target.value)}
                                         required
                                     />
+                                </div>
+                                <div className="form-group mb-0" style={{ flexBasis: '100%' }}>
+                                    <label className="form-label">Subject Choices</label>
+                                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', padding: '0.75rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                                        {subjects.map(subject => (
+                                            <label key={subject.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={subject.id}
+                                                    checked={newClassSubjectIds.includes(subject.id)}
+                                                    onChange={(e) => handleNewClassSubjectChange(subject.id, e.target.checked)}
+                                                />
+                                                {subject.name}
+                                            </label>
+                                        ))}
+                                        {subjects.length === 0 && (
+                                            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No subjects found. Please create subjects first.</span>
+                                        )}
+                                    </div>
                                 </div>
                                 <button type="submit" className="btn btn-primary">Add Class</button>
                             </form>
 
                             <div className="table-wrapper">
                                 <table>
-                                    <thead><tr><th>Class Name</th><th>Actions</th></tr></thead>
+                                    <thead><tr><th>Class Name</th><th>Subjects</th><th>Actions</th></tr></thead>
                                     <tbody>
                                         {classes.map(c => (
-                                            <tr key={c.id}>
-                                                <td>{c.name}</td>
-                                                <td>
-                                                    <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', backgroundColor: '#fee2e2', color: '#dc2626', borderColor: '#fca5a5' }} onClick={() => handleDeleteClass(c.id)}>
-                                                        Delete
-                                                    </button>
-                                                </td>
-                                            </tr>
+                                            editingClassId === c.id ? (
+                                                <tr key={c.id}>
+                                                    <td colSpan="3">
+                                                        <form onSubmit={handleUpdateClass} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                                            <div className="form-group mb-0" style={{ minWidth: '220px' }}>
+                                                                <label className="form-label">Class Name</label>
+                                                                <input
+                                                                    type="text"
+                                                                    className="form-input"
+                                                                    value={editingClassName}
+                                                                    onChange={e => setEditingClassName(e.target.value)}
+                                                                    required
+                                                                />
+                                                            </div>
+                                                            <div className="form-group mb-0" style={{ flexBasis: '100%' }}>
+                                                                <label className="form-label">Subject Choices</label>
+                                                                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', padding: '0.75rem', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                                                                    {subjects.map(subject => (
+                                                                        <label key={subject.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                value={subject.id}
+                                                                                checked={editingClassSubjectIds.includes(subject.id)}
+                                                                                onChange={(e) => toggleSubjectId(subject.id, e.target.checked, setEditingClassSubjectIds)}
+                                                                            />
+                                                                            {subject.name}
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            <button type="submit" className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}>Save</button>
+                                                            <button type="button" className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={cancelEditClass}>Cancel</button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                <tr key={c.id}>
+                                                    <td>{c.name}</td>
+                                                    <td>{getSubjectNamesByIds(c.subject_ids).length ? getSubjectNamesByIds(c.subject_ids).join(', ') : '-'}</td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                            <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} onClick={() => startEditClass(c)}>
+                                                                Edit
+                                                            </button>
+                                                            <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', backgroundColor: '#fee2e2', color: '#dc2626', borderColor: '#fca5a5' }} onClick={() => handleDeleteClass(c.id)}>
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )
                                         ))}
                                     </tbody>
                                 </table>
@@ -657,17 +856,50 @@ const SuperAdminDashboard = () => {
                                         required
                                     />
                                 </div>
+                                <div className="form-group mb-0" style={{ flexGrow: 1, maxWidth: '160px' }}>
+                                    <label className="form-label">Full Marks</label>
+                                    <input
+                                        type="number"
+                                        className="form-input"
+                                        placeholder="e.g., 100"
+                                        min="1"
+                                        value={newExamFullMarks}
+                                        onChange={(e) => setNewExamFullMarks(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group mb-0" style={{ flexBasis: '100%' }}>
+                                    <label className="form-label">Classes</label>
+                                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', padding: '0.75rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                                        {classes.map(c => (
+                                            <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    value={c.id}
+                                                    checked={newExamClassIds.includes(c.id)}
+                                                    onChange={(e) => handleExamClassChange(c.id, e.target.checked)}
+                                                />
+                                                {c.name}
+                                            </label>
+                                        ))}
+                                        {classes.length === 0 && (
+                                            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No classes found. Please create classes first.</span>
+                                        )}
+                                    </div>
+                                </div>
                                 <button type="submit" className="btn btn-primary">Add Exam</button>
                             </form>
 
                             <div className="table-wrapper">
                                 <table>
-                                    <thead><tr><th>Exam Name</th><th>Date</th><th>Actions</th></tr></thead>
+                                    <thead><tr><th>Exam Name</th><th>Date</th><th>Full Marks</th><th>Classes</th><th>Actions</th></tr></thead>
                                     <tbody>
                                         {exams.map(e => (
                                             <tr key={e.id}>
                                                 <td>{e.name}</td>
                                                 <td>{e.date}</td>
+                                                <td>{e.full_marks}</td>
+                                                <td>{e.classroom_names?.length ? e.classroom_names.join(', ') : '-'}</td>
                                                 <td>
                                                     <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', backgroundColor: '#fee2e2', color: '#dc2626', borderColor: '#fca5a5' }} onClick={() => handleDeleteExam(e.id)}>
                                                         Delete

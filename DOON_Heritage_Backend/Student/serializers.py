@@ -88,9 +88,24 @@ class StudentSerializer(serializers.ModelSerializer):
         return value
 
 class ExamSerializer(serializers.ModelSerializer):
+    class_ids = serializers.PrimaryKeyRelatedField(
+        source='classrooms',
+        queryset=ClassRoom.objects.all(),
+        many=True,
+        write_only=True
+    )
+    classroom_ids = serializers.SerializerMethodField()
+    classroom_names = serializers.SerializerMethodField()
+
     class Meta:
         model = Exam
-        fields = '__all__'
+        fields = ['id', 'name', 'date', 'full_marks', 'class_ids', 'classroom_ids', 'classroom_names']
+
+    def get_classroom_ids(self, obj):
+        return list(obj.classrooms.values_list('id', flat=True))
+
+    def get_classroom_names(self, obj):
+        return list(obj.classrooms.values_list('name', flat=True))
 
 class StudentMarkSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)

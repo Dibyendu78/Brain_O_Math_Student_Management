@@ -6,13 +6,14 @@ const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+    const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
     const handleLogin = async (e) => {
         e.preventDefault();
-        setIsLoading(true);
         setError('');
+        setLoading(true);
+
         try {
             const res = await api.post('token/', { username, password });
             sessionStorage.setItem('access', res.data.access);
@@ -35,10 +36,8 @@ const Login = () => {
                 navigate('/subject-teacher');
             } else {
                 setError("You don't have any roles assigned.");
-                setIsLoading(false);
             }
         } catch (err) {
-            setIsLoading(false);
             if (err.response && err.response.data && err.response.data.detail) {
                 setError(err.response.data.detail);
             } else if (err.response && err.response.data && typeof err.response.data === 'object') {
@@ -48,53 +47,70 @@ const Login = () => {
             } else {
                 setError('Invalid credentials. Please try again.');
             }
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <>
-            {isLoading && (
-                <div className="loading-overlay">
-                    <div className="spinner"></div>
-                    <div className="loading-text">Authenticating...</div>
+        <div className="auth-bg">
+            {loading && (
+                <div className="auth-loading-overlay" role="status" aria-live="polite">
+                    <div className="auth-loader"></div>
+                    <p>Signing you in...</p>
                 </div>
             )}
-            <div className="auth-bg">
-                <div className="glass-container auth-card">
-                    <h1 className="auth-title">Welcome Back</h1>
-                <p className="auth-subtitle">Sign in to your account</p>
-                {error && <div style={{ color: 'var(--error)', marginBottom: '1rem', textAlign: 'center' }}>{error}</div>}
 
-                <form onSubmit={handleLogin}>
+            <div className="glass-container auth-card">
+                <h1 className="auth-title">Welcome Back</h1>
+                <p className="auth-subtitle">Sign in to your account</p>
+
+                {error && (
+                    <div style={{ color: 'var(--error)', marginBottom: '1rem', textAlign: 'center' }}>
+                        {error}
+                    </div>
+                )}
+
+                <form onSubmit={handleLogin} aria-busy={loading}>
                     <div className="form-group">
-                        <label className="form-label">Username</label>
+                        <label className="form-label" htmlFor="username">Username</label>
                         <input
+                            id="username"
                             type="text"
                             className="form-input"
                             placeholder="Enter username"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
+                            disabled={loading}
                             required
                         />
                     </div>
+
                     <div className="form-group">
-                        <label className="form-label">Password</label>
+                        <label className="form-label" htmlFor="password">Password</label>
                         <input
+                            id="password"
                             type="password"
                             className="form-input"
                             placeholder="Enter password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            disabled={loading}
                             required
                         />
                     </div>
-                    <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
-                        Sign In
+
+                    <button
+                        type="submit"
+                        className="btn btn-primary"
+                        style={{ width: '100%', marginTop: '1rem' }}
+                        disabled={loading}
+                    >
+                        {loading ? 'Signing In...' : 'Sign In'}
                     </button>
                 </form>
             </div>
         </div>
-        </>
     );
 };
 

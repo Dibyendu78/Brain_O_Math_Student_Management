@@ -62,6 +62,8 @@ class Student(models.Model):
 class Exam(models.Model):
     name = models.CharField(max_length=100)
     date = models.DateField()
+    full_marks = models.PositiveIntegerField()
+    classrooms = models.ManyToManyField(ClassRoom, related_name='exams', blank=True)
 
     def __str__(self):
         return f"{self.name} - {self.date}"
