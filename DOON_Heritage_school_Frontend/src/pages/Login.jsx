@@ -38,14 +38,26 @@ const Login = () => {
                 setError("You don't have any roles assigned.");
             }
         } catch (err) {
-            if (err.response && err.response.data && err.response.data.detail) {
-                setError(err.response.data.detail);
-            } else if (err.response && err.response.data && typeof err.response.data === 'object') {
-                // If it's a different kind of error object
-                const errorMsg = Object.values(err.response.data).flat().join(' ');
-                setError(errorMsg || 'Invalid credentials. Please try again.');
+            console.error('Login error:', err);
+            if (err.response) {
+                // The request was made and the server responded with a status code
+                // that falls out of the range of 2xx
+                if (err.response.status >= 500) {
+                    setError(`Server error (${err.response.status}). Please check server logs.`);
+                } else if (err.response.data && err.response.data.detail) {
+                    setError(err.response.data.detail);
+                } else if (err.response.data && typeof err.response.data === 'object') {
+                    const errorMsg = Object.values(err.response.data).flat().join(' ');
+                    setError(errorMsg || 'Invalid credentials. Please try again.');
+                } else {
+                    setError(`Error: ${err.response.statusText || 'Invalid credentials. Please try again.'}`);
+                }
+            } else if (err.request) {
+                // The request was made but no response was received
+                setError('Network error. Cannot reach the server.');
             } else {
-                setError('Invalid credentials. Please try again.');
+                // Something happened in setting up the request that triggered an Error
+                setError('An unexpected error occurred. Please try again.');
             }
         } finally {
             setLoading(false);
