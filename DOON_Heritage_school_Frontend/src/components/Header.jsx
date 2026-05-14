@@ -1,9 +1,11 @@
-import React from 'react';
-import { Menu, User, BookOpen, GraduationCap } from 'lucide-react';
+import React, { useState } from 'react';
+import { Menu, X, User, BookOpen, GraduationCap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import './Header.css';
 
 const Header = () => {
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
     return (
         <header className="header">
             {/* Top Utility Bar */}
@@ -44,11 +46,29 @@ const Header = () => {
                         </Link>
                     </nav>
 
-                    <button className="mobile-menu-btn">
-                        <Menu size={28} />
+                    <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+                        {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
                     </button>
                 </div>
             </div>
+
+            {/* Mobile Navigation */}
+            {isMobileMenuOpen && (
+                <div className="mobile-nav">
+                    <ul className="mobile-nav-links">
+                        <li><Link to="/" className="active" onClick={() => setIsMobileMenuOpen(false)}>Home</Link></li>
+                        <li><a href="#" onClick={() => setIsMobileMenuOpen(false)}>About</a></li>
+                        <li><a href="#" onClick={() => setIsMobileMenuOpen(false)}>Academics</a></li>
+                        <li><a href="#" onClick={() => setIsMobileMenuOpen(false)}>Admissions</a></li>
+                        <li><a href="#" onClick={() => setIsMobileMenuOpen(false)}>Contact</a></li>
+                    </ul>
+                    <div className="mobile-nav-footer">
+                        <Link to="/login" className="btn btn-gold login-btn-nav" style={{ textDecoration: 'none', width: '100%', display: 'flex', justifyContent: 'center' }} onClick={() => setIsMobileMenuOpen(false)}>
+                            <User size={18} /> Teacher Portal
+                        </Link>
+                    </div>
+                </div>
+            )}
         </header>
     );
 };

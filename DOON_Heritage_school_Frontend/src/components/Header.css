@@ -154,4 +154,50 @@
     .school-name {
         font-size: 1.25rem;
     }
+
+    .mobile-nav {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        width: 100%;
+        background-color: white;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        border-top: 1px solid #eee;
+        z-index: 99;
+    }
+
+    .mobile-nav-links {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .mobile-nav-links li {
+        border-bottom: 1px solid #eee;
+    }
+
+    .mobile-nav-links a {
+        display: block;
+        padding: 1rem 1.5rem;
+        text-decoration: none;
+        color: var(--text-main);
+        font-weight: 500;
+        font-size: 1rem;
+        transition: background-color 0.2s;
+    }
+
+    .mobile-nav-links a:hover,
+    .mobile-nav-links a.active {
+        background-color: #f8f9fa;
+        color: var(--primary-navy);
+    }
+
+    .mobile-nav-footer {
+        padding: 1.5rem;
+        background-color: #f8f9fa;
+    }
 }
