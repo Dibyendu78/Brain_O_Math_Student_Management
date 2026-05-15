@@ -138,6 +138,13 @@ const SubjectTeacherDashboard = () => {
     };
 
     const handleSaveSingleAndFetch = async (studentId, markValue) => {
+        if (selectedExamObj && selectedExamObj.full_marks) {
+            if (Number(markValue) > Number(selectedExamObj.full_marks)) {
+                alert(`Marks cannot be greater than full marks (${selectedExamObj.full_marks}).`);
+                setSavingStates(prev => ({ ...prev, [studentId]: 'error' }));
+                return;
+            }
+        }
         setSavingStates(prev => ({ ...prev, [studentId]: 'saving' }));
         try {
             await handleSaveMark(studentId, markValue);
@@ -404,7 +411,7 @@ const SubjectTeacherDashboard = () => {
                                     </select>
                                 </div>
                                 <div className="form-group mb-0" style={{ flexBasis: '100%' }}>
-                                    <label className="form-label">Excel Marks Entry</label>
+                                    <label className="form-label">Marks Entry</label>
                                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', padding: '0.85rem', borderRadius: '8px', marginBottom: '0.75rem', fontSize: '0.9rem', lineHeight: 1.5 }}>
                                         <strong>Two ways to enter marks:</strong>
                                         <ul style={{ margin: '0.5rem 0', paddingLeft: '1.25rem' }}>
