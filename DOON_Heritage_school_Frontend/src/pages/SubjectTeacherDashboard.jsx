@@ -534,14 +534,7 @@ const SubjectTeacherDashboard = () => {
                                                     </td>
                                                     <td>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                            <button
-                                                                className="btn btn-secondary"
-                                                                style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', margin: 0 }}
-                                                                onClick={() => handleSaveSingleAndFetch(s.id, marksInput[s.id] !== undefined ? marksInput[s.id] : (getExistingMarkValue(s.id) !== null ? getExistingMarkValue(s.id) : ''))}
-                                                                disabled={savingStates[s.id] === 'saving'}
-                                                            >
-                                                                Save
-                                                            </button>
+
                                                             {savingStates[s.id] === 'saving' && (
                                                                 <div style={{ width: '1rem', height: '1rem', border: '2px solid #e2e8f0', borderTop: '2px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
                                                             )}
