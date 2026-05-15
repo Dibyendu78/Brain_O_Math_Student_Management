@@ -21,6 +21,9 @@ const SubjectTeacherDashboard = () => {
     const [isUploadingExcel, setIsUploadingExcel] = useState(false);
     const [excelInputKey, setExcelInputKey] = useState(0);
 
+    const [isFetching, setIsFetching] = useState(false);
+    const [fetchSuccess, setFetchSuccess] = useState(false);
+
     // Student Filter State
     const [studentSubjectFilter, setStudentSubjectFilter] = useState('');
 
@@ -81,6 +84,8 @@ const SubjectTeacherDashboard = () => {
         : students;
 
     const fetchData = async () => {
+        setIsFetching(true);
+        setFetchSuccess(false);
         try {
             const [subRes, stuRes, mRes, exRes] = await Promise.all([
                 api.get('subject-teacher/my-subjects/'),
@@ -92,8 +97,12 @@ const SubjectTeacherDashboard = () => {
             setStudents(stuRes.data);
             setMarks(mRes.data);
             setExams(exRes.data);
+            setFetchSuccess(true);
+            setTimeout(() => setFetchSuccess(false), 2000);
         } catch (error) {
             console.error("Error fetching subject teacher data", error);
+        } finally {
+            setIsFetching(false);
         }
     };
 
@@ -287,7 +296,20 @@ const SubjectTeacherDashboard = () => {
 
             <main className="page-container">
                 <div className="page-header">
-                    <h1 className="page-title">My Subjects & Marks</h1>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <h1 className="page-title" style={{ margin: 0 }}>My Subjects & Marks</h1>
+                        {isFetching && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#3b82f6', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                                <div style={{ width: '1rem', height: '1rem', border: '2px solid #bfdbfe', borderTop: '2px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                                Fetching data...
+                            </div>
+                        )}
+                        {fetchSuccess && !isFetching && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#22c55e', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                                <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>✔</span> Data fetched successfully
+                            </div>
+                        )}
+                    </div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                         <button className={`btn ${activeTab === 'subjects' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('subjects')}>My Subjects</button>
                         <button className={`btn ${activeTab === 'students' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('students')}>Subject Students</button>
@@ -384,13 +406,16 @@ const SubjectTeacherDashboard = () => {
                                 <div className="form-group mb-0" style={{ flexBasis: '100%' }}>
                                     <label className="form-label">Excel Marks Entry</label>
                                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', padding: '0.85rem', borderRadius: '8px', marginBottom: '0.75rem', fontSize: '0.9rem', lineHeight: 1.5 }}>
-                                        <strong>How to use Excel marks entry:</strong>
-                                        <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+                                        <strong>Two ways to enter marks:</strong>
+                                        <ul style={{ margin: '0.5rem 0', paddingLeft: '1.25rem' }}>
+                                            <li><strong>Option 1 (Directly Below):</strong> Simply type the marks in the table below. It will automatically save when you press Enter or move to the next cell.</li>
+                                            <li><strong>Option 2 (Using Excel):</strong> Follow these steps:</li>
+                                        </ul>
+                                        <ol style={{ margin: '0', paddingLeft: '2.5rem' }}>
                                             <li>Choose the class, exam type, and subject above.</li>
-                                            <li>Click Download Excel. The sheet will include Roll, Student Name, Class, Subject, and Full Marks.</li>
-                                            <li>Open the downloaded file and enter marks only in the Marks Obtained column.</li>
-                                            <li>Save the Excel file as .xlsx without changing the Roll, Class, Subject, or Full Marks columns.</li>
-                                            <li>Select the saved file here and click Upload. The system will validate every row and update marks.</li>
+                                            <li>Click Download Excel. Open the downloaded file and enter marks only in the <em>Marks Obtained</em> column.</li>
+                                            <li>Save the Excel file as .xlsx without changing any other columns.</li>
+                                            <li>Select the saved file here and click Upload. The system will automatically update the marks.</li>
                                         </ol>
                                     </div>
                                     <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>

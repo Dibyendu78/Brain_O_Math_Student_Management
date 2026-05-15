@@ -11,6 +11,9 @@ const ClassTeacherDashboard = () => {
     const [showStudentForm, setShowStudentForm] = useState(false);
     const [studentForm, setStudentForm] = useState({ name: '', roll_number: '', email: '', classroom: '', parent_name: '', parent_mobile_number: '' });
 
+    const [isFetching, setIsFetching] = useState(false);
+    const [fetchSuccess, setFetchSuccess] = useState(false);
+
     // Filters for marks viewing
     const [selectedClassFilter, setSelectedClassFilter] = useState('');
     const [selectedExamFilter, setSelectedExamFilter] = useState('');
@@ -39,6 +42,8 @@ const ClassTeacherDashboard = () => {
     }, []);
 
     const fetchData = async () => {
+        setIsFetching(true);
+        setFetchSuccess(false);
         try {
             setFetchError('');
             const [cRes, sRes, mRes, eRes] = await Promise.all([
@@ -51,9 +56,13 @@ const ClassTeacherDashboard = () => {
             setStudents(sRes.data);
             setMarks(mRes.data);
             setExams(eRes.data);
+            setFetchSuccess(true);
+            setTimeout(() => setFetchSuccess(false), 2000);
         } catch (error) {
             console.error("Error fetching class teacher data", error);
             setFetchError(error.message || "Network Error");
+        } finally {
+            setIsFetching(false);
         }
     };
 
@@ -121,6 +130,12 @@ const ClassTeacherDashboard = () => {
 
     return (
         <div className="dashboard-layout">
+            <style>{`
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `}</style>
             <nav className="navbar">
                 <div className="navbar-brand">Class Teacher Portal</div>
                 <div className="navbar-user" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -139,7 +154,20 @@ const ClassTeacherDashboard = () => {
                     </div>
                 )}
                 <div className="page-header">
-                    <h1 className="page-title">My Classes & Students</h1>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <h1 className="page-title" style={{ margin: 0 }}>My Classes & Students</h1>
+                        {isFetching && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#3b82f6', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                                <div style={{ width: '1rem', height: '1rem', border: '2px solid #bfdbfe', borderTop: '2px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                                Fetching data...
+                            </div>
+                        )}
+                        {fetchSuccess && !isFetching && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#22c55e', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                                <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>✔</span> Data fetched successfully
+                            </div>
+                        )}
+                    </div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                         <button className={`btn ${activeTab === 'classes' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('classes')}>My Classes</button>
                         <button className={`btn ${activeTab === 'students' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('students')}>My Students</button>
