@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 
@@ -24,6 +24,9 @@ const SubjectTeacherDashboard = () => {
     // Student Filter State
     const [studentSubjectFilter, setStudentSubjectFilter] = useState('');
 
+    const [savingStates, setSavingStates] = useState({});
+    const inputRefs = useRef({});
+
     const roles = JSON.parse(sessionStorage.getItem('roles') || '[]');
     const navigate = useNavigate();
 
@@ -47,19 +50,8 @@ const SubjectTeacherDashboard = () => {
     }, []);
 
     useEffect(() => {
-        if (selectedExam && selectedSubject) {
-            const initialMarks = {};
-            const subjectId = selectedAssignment ? selectedAssignment.subject.toString() : '';
-
-            filteredStudents.forEach(s => {
-                const existingMark = marks.find(m => m.student === s.id && m.exam.toString() === selectedExam && m.subject.toString() === subjectId);
-                initialMarks[s.id] = existingMark ? existingMark.marks : '';
-            });
-            setMarksInput(initialMarks);
-        } else {
-            setMarksInput({});
-        }
-    }, [selectedExam, selectedSubject, selectedClass, marks, students]);
+        setMarksInput({});
+    }, [selectedExam, selectedSubject, selectedClass]);
 
     const assignments = subjects; // Since subjects from API are now assignments
     const assignedClasses = Array.from(
@@ -75,6 +67,9 @@ const SubjectTeacherDashboard = () => {
     // Filter students by selected assignment's class
     const selectedAssignment = assignments.find(a => a.id.toString() === selectedSubject);
     const selectedClassId = selectedAssignment ? selectedAssignment.classroom.toString() : '';
+
+    // Selected exam object
+    const selectedExamObj = exams.find(e => e.id.toString() === selectedExam);
 
     // Extracted students matching the selected assignment's class
     const filteredStudents = selectedClassId ? students.filter(s => s.classroom.toString() === selectedClassId) : [];
@@ -134,11 +129,66 @@ const SubjectTeacherDashboard = () => {
     };
 
     const handleSaveSingleAndFetch = async (studentId, markValue) => {
+        setSavingStates(prev => ({ ...prev, [studentId]: 'saving' }));
         try {
             await handleSaveMark(studentId, markValue);
             fetchData();
+            setSavingStates(prev => ({ ...prev, [studentId]: 'saved' }));
+            setTimeout(() => {
+                setSavingStates(prev => ({ ...prev, [studentId]: null }));
+            }, 2000);
         } catch (e) {
+            setSavingStates(prev => ({ ...prev, [studentId]: 'error' }));
             alert("Failed to save mark.");
+        }
+    };
+
+    const getExistingMarkValue = (studentId) => {
+        const subjectId = selectedAssignment ? selectedAssignment.subject.toString() : '';
+        const existingMark = marks.find(m => m.student === studentId && m.exam.toString() === selectedExam && m.subject.toString() === subjectId);
+        return existingMark ? existingMark.marks : null;
+    };
+
+    const moveToNextEmpty = (currentIndex, currentTarget) => {
+        for (let i = currentIndex + 1; i < filteredStudents.length; i++) {
+            const nextInput = inputRefs.current[i];
+            if (nextInput && !nextInput.value) {
+                nextInput.focus();
+                return;
+            }
+        }
+        if (currentTarget) currentTarget.blur();
+    };
+
+    const moveFocus = (currentIndex, direction) => {
+        let target = currentIndex + direction;
+        while (target >= 0 && target < filteredStudents.length) {
+            const targetInput = inputRefs.current[target];
+            if (targetInput) {
+                targetInput.focus();
+                return;
+            }
+            target += direction;
+        }
+    };
+
+    const handleKeyDown = (e, index, studentId) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            moveToNextEmpty(index, e.target);
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            moveFocus(index, 1);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            moveFocus(index, -1);
+        }
+    };
+
+    const handleBlur = (studentId, value) => {
+        const existingValue = getExistingMarkValue(studentId);
+        if (value !== undefined && value !== '' && String(value) !== String(existingValue || '')) {
+            handleSaveSingleAndFetch(studentId, value);
         }
     };
 
@@ -235,6 +285,12 @@ const SubjectTeacherDashboard = () => {
 
     return (
         <div className="dashboard-layout">
+            <style>{`
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `}</style>
             <nav className="navbar">
                 <div className="navbar-brand">Subject Teacher Portal</div>
                 <div className="navbar-user" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -427,32 +483,63 @@ const SubjectTeacherDashboard = () => {
 
                             {selectedExam && selectedSubject ? (
                                 <div className="table-wrapper">
+                                    <div style={{ marginBottom: '1rem', padding: '1rem', background: '#eff6ff', borderRadius: '8px', borderLeft: '4px solid #3b82f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <h4 style={{ margin: 0, color: '#1e3a8a', fontSize: '1.1rem' }}>
+                                            Entering marks for Class: <strong>{selectedAssignment?.classroom_name}</strong> | Subject: <strong>{selectedAssignment?.subject_name}</strong>
+                                        </h4>
+                                        {Object.values(savingStates).includes('saving') && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#3b82f6', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                                                <div style={{ width: '1rem', height: '1rem', border: '2px solid #bfdbfe', borderTop: '2px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                                                Saving...
+                                            </div>
+                                        )}
+                                        {Object.values(savingStates).includes('saved') && !Object.values(savingStates).includes('saving') && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#22c55e', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                                                <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>✔</span> All changes saved
+                                            </div>
+                                        )}
+                                    </div>
                                     <table>
-                                        <thead><tr><th>Student Name</th><th>Roll No</th><th>Class</th><th>Marks</th><th>Action</th></tr></thead>
+                                        <thead><tr><th>Student Name</th><th>Roll No</th><th>Full Marks</th><th>Marks</th><th>Action</th></tr></thead>
                                         <tbody>
-                                            {filteredStudents.map(s => (
+                                            {filteredStudents.map((s, index) => (
                                                 <tr key={s.id}>
                                                     <td>{s.name}</td>
                                                     <td>{s.roll_number || '-'}</td>
-                                                    <td>{s.classroom_name}</td>
+                                                    <td>{selectedExamObj?.full_marks || '-'}</td>
                                                     <td>
                                                         <input
+                                                            ref={el => inputRefs.current[index] = el}
                                                             type="number"
-                                                            className="form-input"
-                                                            style={{ width: '100px', margin: 0, padding: '0.25rem 0.5rem' }}
-                                                            value={marksInput[s.id] !== undefined ? marksInput[s.id] : ''}
+                                                            className="form-input marks-input"
+                                                            style={{ width: '100px', margin: 0, padding: '0.25rem 0.5rem', background: getExistingMarkValue(s.id) !== null ? '#f1f5f9' : 'white' }}
+                                                            value={marksInput[s.id] !== undefined ? marksInput[s.id] : (getExistingMarkValue(s.id) !== null ? getExistingMarkValue(s.id) : '')}
                                                             onChange={e => setMarksInput(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                                            onKeyDown={e => handleKeyDown(e, index, s.id)}
+                                                            onBlur={e => handleBlur(s.id, e.target.value)}
                                                             placeholder="Enter mark"
                                                         />
                                                     </td>
                                                     <td>
-                                                        <button
-                                                            className="btn btn-secondary"
-                                                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', margin: 0 }}
-                                                            onClick={() => handleSaveSingleAndFetch(s.id, marksInput[s.id])}
-                                                        >
-                                                            Save
-                                                        </button>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                            <button
+                                                                className="btn btn-secondary"
+                                                                style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', margin: 0 }}
+                                                                onClick={() => handleSaveSingleAndFetch(s.id, marksInput[s.id] !== undefined ? marksInput[s.id] : (getExistingMarkValue(s.id) !== null ? getExistingMarkValue(s.id) : ''))}
+                                                                disabled={savingStates[s.id] === 'saving'}
+                                                            >
+                                                                Save
+                                                            </button>
+                                                            {savingStates[s.id] === 'saving' && (
+                                                                <div style={{ width: '1rem', height: '1rem', border: '2px solid #e2e8f0', borderTop: '2px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                                                            )}
+                                                            {savingStates[s.id] === 'saved' && (
+                                                                <span style={{ color: '#22c55e', fontSize: '1.2rem', lineHeight: 1 }}>✔</span>
+                                                            )}
+                                                            {savingStates[s.id] === 'error' && (
+                                                                <span style={{ color: '#ef4444', fontSize: '1.2rem', lineHeight: 1 }}>❌</span>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
