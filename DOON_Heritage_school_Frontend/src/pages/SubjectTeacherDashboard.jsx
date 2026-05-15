@@ -192,23 +192,6 @@ const SubjectTeacherDashboard = () => {
         }
     };
 
-    const handleSaveAllMarks = async () => {
-        try {
-            const promises = Object.entries(marksInput).map(([studentId, markValue]) => {
-                if (markValue !== '') {
-                    return handleSaveMark(parseInt(studentId), markValue);
-                }
-                return Promise.resolve();
-            });
-            await Promise.all(promises);
-            fetchData();
-            alert("All marks saved successfully!");
-        } catch (error) {
-            console.error("Error saving all marks", error);
-            alert("Failed to save some or all marks.");
-        }
-    };
-
     const handleDownloadExcel = async () => {
         if (!selectedClass || !selectedExam || !selectedAssignment) {
             alert("Please choose class, exam type, and subject first.");
@@ -364,9 +347,6 @@ const SubjectTeacherDashboard = () => {
                         <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                                 <h3>Student Marks for My Subjects</h3>
-                                {selectedExam && selectedSubject && filteredStudents.length > 0 && (
-                                    <button className="btn btn-primary" onClick={handleSaveAllMarks}>Save All</button>
-                                )}
                             </div>
 
                             <div style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px', marginBottom: '1rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
