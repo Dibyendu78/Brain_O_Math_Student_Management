@@ -4,6 +4,8 @@ services:
       context: ./DOON_Heritage_Backend
       dockerfile: Dockerfile.prod
     container_name: doon_backend_prod
+    ports:
+      - "8000:8000"
     env_file:
       - .env
     environment:
